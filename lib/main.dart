@@ -1,0 +1,206 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+
+import 'core/api_client.dart';
+import 'core/session.dart';
+import 'core/theme.dart';
+import 'core/theme_controller.dart';
+import 'screens/auth/login_screen.dart';
+import 'screens/auth/password_reset_screen.dart';
+import 'screens/auth/signup_screen.dart';
+import 'screens/booking/booking_screen.dart';
+import 'screens/chat/broadcasts_screen.dart';
+import 'screens/chat/chat_room_screen.dart';
+import 'screens/chat/new_chat_screen.dart';
+import 'screens/dashboards/admin_broadcasts_screen.dart';
+import 'screens/dashboards/admin_owners_screen.dart';
+import 'screens/dashboards/barber_hours_screen.dart';
+import 'screens/dashboards/barber_requests_screen.dart';
+import 'screens/dashboards/barber_styles_screen.dart';
+import 'screens/dashboards/barber_wallets_screen.dart';
+import 'screens/dashboards/owner_requests_screen.dart';
+import 'screens/dashboards/owner_shop_screen.dart';
+import 'screens/dashboards/owner_team_screen.dart';
+import 'screens/home/shop_detail_screen.dart';
+import 'screens/home_shell.dart';
+import 'services/auth_service.dart';
+import 'services/chat_identity.dart';
+import 'services/chat_service.dart';
+import 'services/reservation_service.dart';
+import 'services/shop_service.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const ReservilyApp());
+}
+
+class ReservilyApp extends StatelessWidget {
+  const ReservilyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeController()),
+        Provider(create: (_) => ApiClient()),
+        ChangeNotifierProvider(create: (_) => Session()),
+        ChangeNotifierProxyProvider<ApiClient, AuthService>(
+          update: (context, api, __) => AuthService(
+            api: api,
+            session: Provider.of<Session>(context, listen: false),
+          ),
+          create: (context) => AuthService(
+            api: Provider.of<ApiClient>(context, listen: false),
+            session: Provider.of<Session>(context, listen: false),
+          ),
+        ),
+        ProxyProvider<ApiClient, ShopService>(
+          update: (context, api, __) => ShopService(api),
+          create: (context) =>
+              ShopService(Provider.of<ApiClient>(context, listen: false)),
+        ),
+        ProxyProvider<ApiClient, ReservationService>(
+          update: (context, api, __) => ReservationService(api),
+          create: (context) => ReservationService(
+              Provider.of<ApiClient>(context, listen: false)),
+        ),
+        ProxyProvider<ApiClient, ChatService>(
+          update: (context, api, __) => ChatService(api),
+          create: (context) =>
+              ChatService(Provider.of<ApiClient>(context, listen: false)),
+        ),
+        ProxyProvider<ApiClient, ChatIdentity>(
+          update: (context, api, __) => ChatIdentity(api: api),
+          create: (context) =>
+              ChatIdentity(api: Provider.of<ApiClient>(context, listen: false)),
+        ),      ],
+      child: const _AppRoot(),
+    );
+  }
+}
+
+class _AppRoot extends StatefulWidget {
+  const _AppRoot();
+
+  @override
+  State<_AppRoot> createState() => _AppRootState();
+}
+
+class _AppRootState extends State<_AppRoot> {
+  bool _restored = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    final auth = context.read<AuthService>();
+    final theme = context.read<ThemeController>();
+    if (!_restored) {
+      _restored = true;
+      try {
+        await theme.load();
+      } catch (_) {}
+      await auth.restore();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final themeController = context.watch<ThemeController>();
+    return MaterialApp.router(
+      title: 'Reservily',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: themeController.mode,
+      routerConfig: _buildRouter(context),
+    );
+  }
+}
+
+/// Builds the GoRouter. Must be called with a [context] that already has the
+/// providers mounted so redirects can read the session.
+GoRouter _buildRouter(BuildContext context) {
+  final session = context.read<Session>();
+
+  return GoRouter(
+    initialLocation: '/',
+    refreshListenable: session,
+    redirect: (context, state) {
+      final loggedIn = session.isAuthenticated;
+      final restoring = session.restoring;
+      final onPublic = state.matchedLocation == '/login' ||
+          state.matchedLocation == '/signup' ||
+          state.matchedLocation == '/password-reset';
+      if (restoring) {
+        // Stay wherever we are (splash is shown by the shell).
+        return null;
+      }
+      if (!loggedIn && !onPublic) return '/login';
+      if (loggedIn && onPublic) return '/';
+      return null;
+    },
+    routes: [
+      GoRoute(
+        path: '/',
+        builder: (context, state) => const HomeShell(),
+      ),
+      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+      GoRoute(path: '/signup', builder: (_, __) => const SignupScreen()),
+      GoRoute(
+          path: '/password-reset',
+          builder: (_, __) => const PasswordResetScreen()),
+      GoRoute(
+        path: '/shop/:slug',
+        builder: (_, state) => ShopDetailScreen(slug: state.pathParameters['slug']!),
+      ),
+      GoRoute(
+        path: '/shop/:slug/book',
+        builder: (_, state) =>
+            BookingScreen(slug: state.pathParameters['slug']!),
+      ),
+      GoRoute(
+        path: '/chat/new',
+        builder: (_, __) => const NewChatScreen(),
+      ),
+      GoRoute(
+        path: '/chat/broadcasts',
+        builder: (_, __) => const BroadcastsScreen(),
+      ),
+      GoRoute(
+        path: '/chat/:id',
+        builder: (_, state) => ChatRoomScreen(
+          conversationId: int.parse(state.pathParameters['id']!),
+        ),
+      ),
+      GoRoute(
+          path: '/barber/hours', builder: (_, __) => const BarberHoursScreen()),
+      GoRoute(
+          path: '/barber/styles',
+          builder: (_, __) => const BarberStylesScreen()),
+      GoRoute(
+          path: '/barber/requests',
+          builder: (_, __) => const BarberRequestsScreen()),
+      GoRoute(
+          path: '/barber/wallets',
+          builder: (_, __) => const BarberWalletsScreen()),
+      GoRoute(
+          path: '/owner/shop', builder: (_, __) => const OwnerShopScreen()),
+      GoRoute(
+          path: '/owner/team', builder: (_, __) => const OwnerTeamScreen()),
+      GoRoute(
+          path: '/owner/requests',
+          builder: (_, __) => const OwnerRequestsScreen()),
+      GoRoute(
+          path: '/admin/broadcasts',
+          builder: (_, __) => const AdminBroadcastsScreen()),
+      GoRoute(
+          path: '/admin/owners',
+          builder: (_, __) => const AdminOwnersScreen()),
+    ],
+  );
+}

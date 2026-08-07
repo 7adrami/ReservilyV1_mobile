@@ -283,7 +283,7 @@ class ChatCrypto {
     final otherPoint = _spkiDecode(otherPubB64);
     final agreement = ECDHBasicAgreement()..init(myPriv);
     final secret = agreement.calculateAgreement(ECPublicKey(otherPoint, _p256));
-    final bits = _fixed(secret, agreement.getFieldSize());
+    final bits = _fixed(secret, _coordBytes);
     return hkdfSha256(
       ikm: bits,
       salt: _utf8(salt),

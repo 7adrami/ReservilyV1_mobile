@@ -147,34 +147,71 @@ GoRouter _buildRouter(BuildContext context) {
     routes: [
       GoRoute(
         path: '/',
-        builder: (context, state) => const HomeShell(),
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: HomeShell(),
+        ),
       ),
-      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-      GoRoute(path: '/signup', builder: (_, __) => const SignupScreen()),
       GoRoute(
-          path: '/password-reset',
-          builder: (_, __) => const PasswordResetScreen()),
+        path: '/login',
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: LoginScreen(),
+        ),
+      ),
+      GoRoute(
+        path: '/signup',
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: SignupScreen(),
+        ),
+      ),
+      GoRoute(
+        path: '/password-reset',
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: PasswordResetScreen(),
+        ),
+      ),
       GoRoute(
         path: '/shop/:slug',
-        builder: (_, state) => ShopDetailScreen(slug: state.pathParameters['slug']!),
+        pageBuilder: (context, state) => CustomTransitionPage(
+          key: state.pageKey,
+          child: ShopDetailScreen(
+            slug: state.pathParameters['slug']!,
+          ),
+          transitionDuration: Duration.zero,
+          transitionsBuilder: (_, __, ___, child) => child,
+        ),
       ),
       GoRoute(
         path: '/shop/:slug/book',
-        builder: (_, state) =>
-            BookingScreen(slug: state.pathParameters['slug']!),
+        pageBuilder: (context, state) => CustomTransitionPage(
+          key: state.pageKey,
+          child: BookingScreen(
+            slug: state.pathParameters['slug']!,
+          ),
+          transitionDuration: Duration.zero,
+          transitionsBuilder: (_, __, ___, child) => child,
+        ),
       ),
       GoRoute(
         path: '/chat/new',
-        builder: (_, __) => const NewChatScreen(),
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: NewChatScreen(),
+        ),
       ),
       GoRoute(
         path: '/chat/broadcasts',
-        builder: (_, __) => const BroadcastsScreen(),
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: BroadcastsScreen(),
+        ),
       ),
       GoRoute(
         path: '/chat/:id',
-        builder: (_, state) => ChatRoomScreen(
-          conversationId: int.parse(state.pathParameters['id']!),
+        pageBuilder: (context, state) => CustomTransitionPage(
+          key: state.pageKey,
+          child: ChatRoomScreen(
+            conversationId: int.parse(state.pathParameters['id']!),
+          ),
+          transitionDuration: Duration.zero,
+          transitionsBuilder: (_, __, ___, child) => child,
         ),
       ),
       GoRoute(

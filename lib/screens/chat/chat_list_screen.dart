@@ -68,7 +68,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   Future<bool> _ensureIdentity(ChatIdentity identity, Session session) async {
     try {
-      await identity.ensureIdentity(username: session.user?.username ?? '');
+      identity.setSessionPassword(session.sessionPassword);
+      await identity.ensureIdentity(
+        username: session.user?.username ?? '',
+        passwordPrompt: session.sessionPassword != null
+            ? (({required String message}) async {
+                return VaultPrompt(result: VaultPromptResult.unlocked, password: session.sessionPassword!);
+              })
+            : null,
+      );
       return true;
     } catch (e) {
       if (mounted) showError(context, e);

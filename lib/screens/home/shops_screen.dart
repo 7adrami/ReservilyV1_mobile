@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
@@ -24,6 +25,8 @@ class _ShopsScreenState extends State<ShopsScreen> {
   String? _error;
   String _query = '';
   String? _city;
+  double? _lat;
+  double? _lng;
   bool _mapView = false;
   Timer? _debounce;
 
@@ -41,16 +44,55 @@ class _ShopsScreenState extends State<ShopsScreen> {
 
   Future<void> _load() async {
     setState(() => _error = null);
-    final cities = await context.read<ShopService>().cities();
-    final shops = await context.read<ShopService>().listShops(
-          query: _query.isEmpty ? null : _query,
+    final shopService = context.read<ShopService>();
+    final cities = await shopService.cities();
+    final shops = await shopService.listShops(
+      query: _query.isEmpty ? null : _query,
           city: _city,
+          lat: _lat,
+          lng: _lng,
         );
     if (!mounted) return;
     setState(() {
       _shops = shops;
       _cities = cities;
     });
+  }
+
+  Future<void> _useMyLocation() async {
+    final permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      final req = await Geolocator.requestPermission();
+      if (req == LocationPermission.denied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location permission denied')),
+        );
+        return;
+      }
+    }
+    if (permission == LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Location permission denied')),
+      );
+      return;
+    }
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      setState(() {
+        _lat = pos.latitude;
+        _lng = pos.longitude;
+        _city = null;
+      });
+      _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not get location: $e')),
+        );
+      }
+    }
   }
 
   void _onQueryChanged(String value) {
@@ -65,6 +107,20 @@ class _ShopsScreenState extends State<ShopsScreen> {
       appBar: AppBar(
         title: const Text('Find your barber'),
         actions: [
+          if (_lat != null && _lng != null)
+            IconButton(
+              tooltip: 'Clear location',
+              onPressed: () {
+                setState(() => _lat = _lng = null);
+                _load();
+              },
+              icon: const Icon(Icons.location_off_outlined),
+            ),
+          IconButton(
+            tooltip: 'Use my location',
+            onPressed: _useMyLocation,
+            icon: const Icon(Icons.my_location),
+          ),
           IconButton(
             tooltip: _mapView ? 'List view' : 'Map view',
             onPressed: () => setState(() => _mapView = !_mapView),
@@ -110,7 +166,7 @@ class _ShopsScreenState extends State<ShopsScreen> {
                       _load();
                     },
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),
@@ -152,143 +208,6 @@ class _ShopsScreenState extends State<ShopsScreen> {
     );
   }
 }
-
-class _CityChip extends StatelessWidget {
-  const _CityChip({required this.label, required this.selected, this.onTap});
-
-  final String label;
-  final bool selected;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(label),
-        selected: selected,
-        onSelected: (_) => onTap?.call(),
-      ),
-    );
-  }
-}
-
-class _ShopCard extends StatelessWidget {
-  const _ShopCard({required this.shop});
-
-  final Shop shop;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-      child: Card(
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => context.push('/shop/${shop.slug}'),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 110,
-                height: 110,
-                child: AppPhoto(shop.photo, borderRadius: 0),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        shop.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.location_on_outlined,
-                              size: 15, color: AppTheme.brand),
-                          const SizedBox(width: 2),
-                          Expanded(
-                            child: Text(
-                              '${shop.city} · ${shop.address}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          const Icon(Icons.schedule_rounded,
-                              size: 15, color: AppTheme.gold),
-                          const SizedBox(width: 3),
-                          Text(
-                            '${shop.opensAt} – ${shop.closesAt}',
-                            style: const TextStyle(
-                                fontSize: 12.5, fontWeight: FontWeight.w600),
-                          ),
-                          const Spacer(),
-                          StarRating(shop.averageRating, size: 14),
-                        ],
-                      ),
-                      if (shop.distanceKm != null) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          '${shop.distanceKm!.toStringAsFixed(1)} km away',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(context).colorScheme.primary),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MapView extends StatelessWidget {
-  const _MapView({required this.shops});
-
-  final List<Shop> shops;
-
-  @override
-  Widget build(BuildContext context) {
-    final lat = shops
-        .map((s) => s.latitude)
-        .reduce((a, b) => (a + b) / 2);
-    final lng = shops
-        .map((s) => s.longitude)
-        .reduce((a, b) => (a + b) / 2);
-    return FlutterMap(
-      options: MapOptions(
-        initialCenter: LatLng(lat, lng),
-        initialZoom: 9,
-        interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
-      ),
-      children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.reservily.app',
-        ),
-        MarkerLayer(
-          markers: [
-            for (final shop in shops)
 
 class _CityChip extends StatelessWidget {
   const _CityChip({required this.label, required this.selected, this.onTap});

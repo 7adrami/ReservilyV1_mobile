@@ -2,7 +2,7 @@ cd "C:\Users\dell\Desktop\reservily_flutter"
 
 git init
 git add .
-git commit -m "Initial commit"
+git commit -m "added stuff"
 
 git branch -M main
 

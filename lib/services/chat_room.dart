@@ -311,6 +311,7 @@ class ChatRoomController extends ChangeNotifier {
 
   Future<void> _decryptVisible() async {
     for (final m in messages) {
+      m.decryptFailed = false;
       await _decryptOne(m);
     }
     notifyListeners();
@@ -436,6 +437,36 @@ class ChatRoomController extends ChangeNotifier {
       mediaIv: enc.iv,
       mediaMime: mime,
       mediaName: name,
+      createdAt: DateTime.tryParse(data.createdAt) ?? DateTime.now(),
+      decrypted: ChatPayload.fromJson(payload),
+    ));
+    replyTo = null;
+  }
+
+  Future<void> sendLocation({
+    required double lat,
+    required double lng,
+    String? label,
+  }) async {
+    final convId = _conversationId;
+    if (convId == null || !unlocked) return;
+    final payload = <String, dynamic>{
+      't': 'location',
+      'l': {'lat': lat, 'lng': lng, if (label != null) 'label': label},
+      if (replyTo != null) ..._replyPayload(),
+    };
+    final enc = ChatCrypto.encryptPayload(_key!, payload);
+    final data = await chatService.send(
+      convId,
+      ciphertext: enc.$1,
+      nonce: enc.$2,
+    );
+    _appendLocal(ChatMessage(
+      id: data.id,
+      senderId: myUserId,
+      isMe: true,
+      ciphertext: enc.$1,
+      nonce: enc.$2,
       createdAt: DateTime.tryParse(data.createdAt) ?? DateTime.now(),
       decrypted: ChatPayload.fromJson(payload),
     ));

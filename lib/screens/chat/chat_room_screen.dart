@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -44,9 +46,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final chat = context.read<ChatService>();
     try {
       if (!identity.hasIdentity) {
+        final session = context.read<Session>();
+        final pw = session.sessionPassword;
+        identity.setSessionPassword(pw);
         await identity.ensureIdentity(
           username: user.username,
-          passwordPrompt: _vaultPrompt,
+          passwordPrompt: pw != null
+              ? (({required String message}) async {
+                  return VaultPrompt(result: VaultPromptResult.unlocked, password: pw);
+                })
+              : _vaultPrompt,
         );
       }
       ChatUserInfo other = widget.other ?? await _findOther();
@@ -178,24 +187,110 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   Future<void> _sendMedia() async {
     final room = _room;
+    final ctx = context;
     if (room == null || !room.unlocked) return;
     final file = await ImagePicker().pickImage(
         source: ImageSource.gallery, maxWidth: 1600, maxHeight: 1600);
     if (file == null) return;
     final bytes = await file.readAsBytes();
     if (bytes.length > 8 * 1024 * 1024) {
-      if (mounted) showError(context, 'Image too large (max 8 MB).');
+      if (mounted) showError(ctx, 'Image too large (max 8 MB).');
       return;
     }
+    final caption = await _mediaCaptionDialog(ctx);
+    if (caption == null) return;
     try {
       await room.sendMedia(
         bytes: bytes,
         name: file.name,
         mime: _mimeOf(file.name),
+        caption: caption,
       );
     } catch (e) {
       if (mounted) showError(context, e);
     }
+  }
+
+  Future<String?> _mediaCaptionDialog(BuildContext context) async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add caption'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(hintText: 'Caption'),
+          maxLines: 2,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Skip'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendLocation() async {
+    final room = _room;
+    final ctx = context;
+    if (room == null || !room.unlocked) return;
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        final req = await Geolocator.requestPermission();
+        if (req == LocationPermission.denied) {
+          if (mounted) showError(context, 'Location permission denied.');
+          return;
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) showError(context, 'Location permission denied forever.');
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
+      if (!mounted) return;
+      final label = await _locationLabelDialog(context);
+      if (label == null) return;
+      await room.sendLocation(
+        lat: pos.latitude,
+        lng: pos.longitude,
+        label: label.isEmpty ? null : label,
+      );
+    } catch (e) {
+      if (mounted) showError(ctx, e);
+    }
+  }
+
+  Future<String?> _locationLabelDialog(BuildContext context) async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Location label'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(hintText: 'e.g. "Our shop"'),
+          maxLines: 1,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
   }
 
   static String _mimeOf(String name) {
@@ -220,12 +315,26 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Future<void> _toggleReaction(ChatMessage m, String emoji) async {
     final room = _room;
     if (room == null) return;
-    final mine = m.reactions.where((r) => r.userId == room.myUserId).toList();
-    try {
-      if (mine.isEmpty) {
+    final mine = m.reactions
+        .where((r) => r.userId == room.myUserId)
+        .toList();
+    if (mine.isEmpty) {
+      try {
         await room.setReaction(m, emoji);
-      } else {
+      } catch (e) {
+        if (mounted) showError(context, e);
+      }
+      return;
+    }
+    try {
+      final alreadyReacted = mine.any((r) {
+        final cached = _decodedEmoji[r.id];
+        return cached == emoji;
+      });
+      if (alreadyReacted) {
         await room.removeReaction(m);
+      } else {
+        await room.setReaction(m, emoji);
       }
     } catch (e) {
       if (mounted) showError(context, e);
@@ -239,6 +348,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('Copy'),
+              onTap: () {
+                Navigator.pop(context);
+                _copyMessage(m);
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.add_reaction_outlined),
               title: const Text('React'),
@@ -274,10 +391,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               onTap: () async {
                 Navigator.pop(context);
                 try {
-                    await _room?.hideForMe(m);
-                  } catch (e) {
-                    if (context.mounted) showError(context, e);
-                  }
+                  await _room?.hideForMe(m);
+                } catch (e) {
+                  if (context.mounted) showError(context, e);
+                }
               },
             ),
           ],
@@ -310,6 +427,40 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         ),
       ),
     );
+  }
+
+  void _showMediaPreview(BuildContext context, Uint8List bytes, String mime) {
+    final isImage = mime.startsWith('image/');
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        child: Stack(
+          children: [
+            Center(
+              child: isImage
+                  ? Image.memory(bytes, fit: BoxFit.contain)
+                  : const Icon(Icons.insert_drive_file, size: 48),
+            ),
+            Positioned(
+              right: 8,
+              top: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _copyMessage(ChatMessage m) {
+    final text = m.decrypted?.text;
+    if (text != null && text.isNotEmpty) {
+      Clipboard.setData(ClipboardData(text: text));
+      if (mounted) showMessage(context, 'Message copied');
+    }
   }
 
   @override
@@ -394,13 +545,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     itemCount: room.messages.length,
                     itemBuilder: (context, i) {
                       final m = room.messages[room.messages.length - 1 - i];
-                      return _MessageBubble(
-                        room: room,
-                        message: m,
-                        emoji: (id) => _decodedEmoji[id],
-                        onLongPress: () => _messageMenu(m),
-                        onEmojiTap: (emoji) => _toggleReaction(m, emoji),
-                      );
+                       return _MessageBubble(
+                         room: room,
+                         message: m,
+                         emoji: (id) => _decodedEmoji[id],
+                         onLongPress: () => _messageMenu(m),
+                         onEmojiTap: (emoji) => _toggleReaction(m, emoji),
+                         onMediaPreview: (bytes, mime) =>
+                             _showMediaPreview(context, bytes, mime),
+                       );
                     },
                   ),
           ),
@@ -433,6 +586,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             unlocked: room.unlocked,
             onSend: _sendText,
             onMedia: _sendMedia,
+            onLocation: _sendLocation,
           ),
         ],
       ),
@@ -462,6 +616,7 @@ class _Composer extends StatelessWidget {
     required this.unlocked,
     required this.onSend,
     required this.onMedia,
+    required this.onLocation,
   });
 
   final TextEditingController controller;
@@ -469,6 +624,7 @@ class _Composer extends StatelessWidget {
   final bool unlocked;
   final VoidCallback onSend;
   final VoidCallback onMedia;
+  final VoidCallback onLocation;
 
   @override
   Widget build(BuildContext context) {
@@ -483,6 +639,11 @@ class _Composer extends StatelessWidget {
               onPressed: unlocked ? onMedia : null,
               icon: const Icon(Icons.add_photo_alternate_outlined),
               tooltip: 'Send photo',
+            ),
+            IconButton(
+              onPressed: unlocked ? onLocation : null,
+              icon: const Icon(Icons.location_on_outlined),
+              tooltip: 'Share location',
             ),
             Expanded(
               child: TextField(
@@ -533,6 +694,7 @@ class _MessageBubble extends StatelessWidget {
     required this.emoji,
     required this.onLongPress,
     required this.onEmojiTap,
+    required this.onMediaPreview,
   });
 
   final ChatRoomController room;
@@ -540,6 +702,16 @@ class _MessageBubble extends StatelessWidget {
   final String? Function(int reactionId) emoji;
   final VoidCallback onLongPress;
   final void Function(String emoji) onEmojiTap;
+  final void Function(Uint8List bytes, String mime) onMediaPreview;
+
+  Map<String, List<ReactionInfo>> _groupedReactions() {
+    final groups = <String, List<ReactionInfo>>{};
+    for (final r in message.reactions) {
+      final e = emoji(r.id) ?? r.name ?? '👍';
+      groups.putIfAbsent(e, () => []).add(r);
+    }
+    return groups;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -581,30 +753,54 @@ class _MessageBubble extends StatelessWidget {
             );
           }
           final media = snapshot.data!;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.memory(
-                  media.bytes,
-                  width: 220,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, __, ___) => const SizedBox(
+          return GestureDetector(
+            onTap: () => onMediaPreview(media.bytes, media.mime),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.memory(
+                    media.bytes,
                     width: 220,
-                    height: 120,
-                    child: Icon(Icons.broken_image_outlined),
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                    errorBuilder: (_, __, ___) => const SizedBox(
+                      width: 220,
+                      height: 120,
+                      child: Icon(Icons.broken_image_outlined),
+                    ),
                   ),
                 ),
-              ),
-              if ((payload.text ?? '').isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(payload.text!),
+                if ((payload.text ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(payload.text!),
+                ],
               ],
-            ],
+            ),
           );
         },
+      );
+     } else if (payload?.type == 'location' && payload!.location != null) {
+      final loc = payload.location!;
+      final label = loc.label;
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.location_on_outlined, size: 28),
+          if (label != null && label.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.bold)),
+          ],
+          const SizedBox(height: 2),
+          Text(
+            '${loc.lat.toStringAsFixed(5)}, ${loc.lng.toStringAsFixed(5)}',
+            style: const TextStyle(fontSize: 12, height: 1.2),
+          ),
+        ],
       );
     } else {
       content = Text(payload?.text ?? '',
@@ -655,17 +851,24 @@ class _MessageBubble extends StatelessWidget {
           if (message.reactions.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Row(
-                mainAxisAlignment:
-                    me ? MainAxisAlignment.end : MainAxisAlignment.start,
-                children: [
-                  _ReactionChip(
-                    reaction: message.reactions.first,
-                    emojiText: emoji(message.reactions.first.id),
-                    isMine: message.reactions.first.userId == room.myUserId,
-                    onTap: () => onEmojiTap(''),
-                  ),
-                ],
+              child: Wrap(
+                spacing: 4,
+                runSpacing: 2,
+                alignment:
+                    me ? WrapAlignment.end : WrapAlignment.start,
+                children: _groupedReactions().entries.map((entry) {
+                  final emojiText = entry.key;
+                  final list = entry.value;
+                  final isMine = list.any(
+                      (r) => r.userId == room.myUserId);
+                  final count = list.length;
+                  return _ReactionChip(
+                    emojiText: emojiText,
+                    count: count,
+                    isMine: isMine,
+                    onTap: () => onEmojiTap(emojiText),
+                  );
+                }).toList(),
               ),
             ),
         ],
@@ -738,14 +941,14 @@ class _ReplyChip extends StatelessWidget {
 
 class _ReactionChip extends StatelessWidget {
   const _ReactionChip({
-    required this.reaction,
     required this.emojiText,
+    required this.count,
     required this.isMine,
     required this.onTap,
   });
 
-  final ReactionInfo reaction;
-  final String? emojiText;
+  final String emojiText;
+  final int count;
   final bool isMine;
   final VoidCallback onTap;
 
@@ -763,7 +966,7 @@ class _ReactionChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           border: isMine ? Border.all(color: scheme.primary) : null,
         ),
-        child: Text(emojiText ?? reaction.name ?? '👍',
+        child: Text('$emojiText $count',
             style: const TextStyle(fontSize: 14)),
       ),
     );

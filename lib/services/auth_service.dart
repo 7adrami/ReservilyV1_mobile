@@ -30,6 +30,20 @@ class AuthService extends ChangeNotifier {
 
   static const _kUserId = 'reservily_user_id';
   static const _kUserJson = 'reservily_user_json';
+  static const _kSessionPw = 'reservily_chat_pw';
+
+  String? _sessionPassword;
+
+  String? get sessionPassword => _sessionPassword;
+
+  Future<void> _storePassword(String? password) async {
+    _sessionPassword = password;
+    await _storage.write(key: _kSessionPw, value: password);
+  }
+
+  Future<String?> _readPassword() async {
+    return await _storage.read(key: _kSessionPw);
+  }
 
   /// Restore a previously stored session from secure storage.
   Future<bool> restore() async {
@@ -41,12 +55,13 @@ class AuthService extends ChangeNotifier {
         return false;
       }
       final user = User.fromJson(_decodeMap(raw));
-      session.setUser(user);
+      session.setUser(user, password: await _readPassword());
       // Keep the profile fresh (also validates the token).
       try {
         final data = await api.request('/api/auth/me/');
-        session.setUser(User.fromJson(data as Map<String, dynamic>));
-        await _storeUser(User.fromJson(data));
+        final u = User.fromJson(data as Map<String, dynamic>);
+        session.setUser(u, password: await _readPassword());
+        await _storeUser(u);
       } on Exception {
         // Token expired and refresh failed: drop the session.
         await api.clearTokens();
@@ -66,7 +81,7 @@ class AuthService extends ChangeNotifier {
       method: 'POST',
       body: {'username': username, 'password': password},
     ) as Map<String, dynamic>;
-    await _applyLogin(data);
+    await _applyLogin(data, password);
   }
 
   /// Sends a signup code. Returns the OTP code in development (console email
@@ -102,7 +117,7 @@ class AuthService extends ChangeNotifier {
         if (lastName != null) 'last_name': lastName,
       },
     ) as Map<String, dynamic>;
-    await _applyLogin(data);
+    await _applyLogin(data, password1);
   }
 
   Future<String?> passwordResetSend(String email) async {
@@ -130,7 +145,7 @@ class AuthService extends ChangeNotifier {
         'password2': password2,
       },
     ) as Map<String, dynamic>;
-    await _applyLogin(data);
+    await _applyLogin(data, password1);
   }
 
   Future<String?> passwordChangeSend() async {
@@ -206,16 +221,18 @@ class AuthService extends ChangeNotifier {
     await api.clearTokens();
     await _storage.delete(key: _kUserId);
     await _storage.delete(key: _kUserJson);
+    await _storage.delete(key: _kSessionPw);
     session.logout();
   }
 
-  Future<void> _applyLogin(Map<String, dynamic> data) async {
+  Future<void> _applyLogin(Map<String, dynamic> data, String? password) async {
     final access = data['access'] as String;
     final refresh = data['refresh'] as String;
     final user = User.fromJson(data['user'] as Map<String, dynamic>);
     await api.saveTokens(access, refresh);
     await _storeUser(user);
-    session.setUser(user);
+    await _storePassword(password);
+    session.setUser(user, password: password);
   }
 
   Future<void> _storeUser(User user) async {

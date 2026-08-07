@@ -29,13 +29,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
     setState(() => _busy = true);
-    final uploadAvatarBytes = context.read<AuthService>().uploadAvatarBytes;
+    final ctx = context;
+    final uploadAvatarBytes = ctx.read<AuthService>().uploadAvatarBytes;
     try {
       await uploadAvatarBytes(bytes, file.name);
     } catch (e) {
-      if (mounted) showError(context, e);
+      if (ctx.mounted) showError(ctx, e);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (ctx.mounted) setState(() => _busy = false);
     }
   }
 

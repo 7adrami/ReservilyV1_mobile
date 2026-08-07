@@ -202,7 +202,6 @@ class MessageView extends StatelessWidget {
     );
   }
 }
-}
 
 /// Rounded, labeled text field matching the app theme.
 class AppField extends StatelessWidget {

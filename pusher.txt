@@ -1,4 +1,4 @@
-cd "C:\Users\dell\Desktop\reservily_flutter"
+cd "C:\Users\dell\Desktop\django\reservily\reservily_flutter"
 
 git init
 git add .

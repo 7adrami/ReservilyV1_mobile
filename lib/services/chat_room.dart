@@ -37,6 +37,7 @@ class ChatRoomController extends ChangeNotifier {
   Uint8List? _key;
   final List<Uint8List> _legacyKeys = [];
   int _pubCount = 0;
+  List<Map<String, dynamic>> _identityBackups = [];
 
   final List<ChatMessage> messages = [];
   final Map<int, ({Uint8List bytes, String mime, String name})> _mediaCache = {};
@@ -83,6 +84,7 @@ class ChatRoomController extends ChangeNotifier {
     _key = null;
     _legacyKeys.clear();
     _pubCount = 0;
+    _identityBackups = await identity.allStoredIdentities();
     messages.clear();
     _mediaCache.clear();
     lastId = 0;
@@ -137,21 +139,34 @@ class ChatRoomController extends ChangeNotifier {
   void _deriveAllKeys(List<String> pubs, String otherUsername) {
     final salts = ChatCrypto.candidateSalts(myUsername, otherUsername);
     final flat = <Uint8List>[];
-    for (final pub in pubs) {
-      for (final salt in salts) {
-        flat.add(ChatCrypto.deriveConversationKey(
-          identity.identity?['priv'] as Map<String, dynamic>,
-          pub,
-          salt,
-        ));
+    final activePriv = identity.identity?['priv'] as Map<String, dynamic>?;
+    // Recovery net: try every private key we have on device, active first.
+    final candidates = <Map<String, dynamic>>[
+      if (activePriv != null) activePriv,
+    ];
+    final seenPubs = <String>{identity.identity?['pub'] as String? ?? ''};
+    for (final ident in _identityBackups) {
+      final priv = ident['priv'];
+      final pub = ident['pub'] as String? ?? '';
+      if (priv is Map<String, dynamic> && seenPubs.add(pub)) {
+        candidates.add(priv);
       }
     }
-    final latestIdx = (pubs.length - 1) * salts.length;
-    _key = flat.isNotEmpty ? flat[latestIdx] : null;
+    for (final priv in candidates) {
+      for (final pub in pubs) {
+        for (final salt in salts) {
+          flat.add(ChatCrypto.deriveConversationKey(priv, pub, salt));
+        }
+      }
+    }
+    // Primary key = the ACTIVE identity (new messages use it to encrypt) with
+    // the newest public key and newest salt. Everything else is legacy.
+    final activeLatestIdx = (pubs.length - 1) * salts.length;
+    _key = flat.isNotEmpty ? flat[activeLatestIdx] : null;
     _legacyKeys.clear();
     if (flat.isNotEmpty) {
       for (var i = 0; i < flat.length; i++) {
-        if (i != latestIdx) _legacyKeys.add(flat[i]);
+        if (i != activeLatestIdx) _legacyKeys.add(flat[i]);
       }
     }
     _pubCount = pubs.length;
@@ -437,36 +452,6 @@ class ChatRoomController extends ChangeNotifier {
       mediaIv: enc.iv,
       mediaMime: mime,
       mediaName: name,
-      createdAt: DateTime.tryParse(data.createdAt) ?? DateTime.now(),
-      decrypted: ChatPayload.fromJson(payload),
-    ));
-    replyTo = null;
-  }
-
-  Future<void> sendLocation({
-    required double lat,
-    required double lng,
-    String? label,
-  }) async {
-    final convId = _conversationId;
-    if (convId == null || !unlocked) return;
-    final payload = <String, dynamic>{
-      't': 'location',
-      'l': {'lat': lat, 'lng': lng, if (label != null) 'label': label},
-      if (replyTo != null) ..._replyPayload(),
-    };
-    final enc = ChatCrypto.encryptPayload(_key!, payload);
-    final data = await chatService.send(
-      convId,
-      ciphertext: enc.$1,
-      nonce: enc.$2,
-    );
-    _appendLocal(ChatMessage(
-      id: data.id,
-      senderId: myUserId,
-      isMe: true,
-      ciphertext: enc.$1,
-      nonce: enc.$2,
       createdAt: DateTime.tryParse(data.createdAt) ?? DateTime.now(),
       decrypted: ChatPayload.fromJson(payload),
     ));

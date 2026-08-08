@@ -38,6 +38,7 @@ class Reservation {
   static const String statusCancelled = 'cancelled';
 
   String get shopName => shop?['name'] as String? ?? '—';
+  String? get shopSlug => shop?['slug'] as String?;
   String get barberName => barber?['name'] as String? ?? '—';
   String get customerName => customer?['name'] as String? ?? '—';
   String get serviceName => service?['name'] as String? ?? '—';

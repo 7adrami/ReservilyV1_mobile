@@ -35,11 +35,11 @@ class _HomeShellState extends State<HomeShell> {
     final List<Widget> tabs;
     final List<NavigationDestination> destinations;
     if (user.isCustomer) {
-      tabs = const [
-        ShopsScreen(),
-        ReservationsScreen(),
-        ChatListScreen(),
-        ProfileScreen(),
+      tabs = [
+        const ShopsScreen(),
+        ReservationsScreen(onFindBarber: () => setState(() => _index = 0)),
+        const ChatListScreen(),
+        const ProfileScreen(),
       ];
       destinations = const [
         NavigationDestination(

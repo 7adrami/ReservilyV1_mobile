@@ -1,6 +1,6 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -45,19 +45,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final identity = context.read<ChatIdentity>();
     final chat = context.read<ChatService>();
     try {
-      if (!identity.hasIdentity) {
-        final session = context.read<Session>();
-        final pw = session.sessionPassword;
-        identity.setSessionPassword(pw);
-        await identity.ensureIdentity(
-          username: user.username,
-          passwordPrompt: pw != null
-              ? (({required String message}) async {
-                  return VaultPrompt(result: VaultPromptResult.unlocked, password: pw);
-                })
-              : _vaultPrompt,
-        );
-      }
+      final pw = session.sessionPassword;
+      identity.setSessionPassword(pw);
+      await identity.ensureIdentity(
+        username: user.username,
+        passwordPrompt: pw != null
+            ? (({required String message}) async {
+                return VaultPrompt(result: VaultPromptResult.unlocked, password: pw);
+              })
+            : _vaultPrompt,
+      );
       ChatUserInfo other = widget.other ?? await _findOther();
       final room = ChatRoomController(
         chatService: chat,
@@ -187,27 +184,82 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   Future<void> _sendMedia() async {
     final room = _room;
-    final ctx = context;
     if (room == null || !room.unlocked) return;
-    final file = await ImagePicker().pickImage(
-        source: ImageSource.gallery, maxWidth: 1600, maxHeight: 1600);
-    if (file == null) return;
-    final bytes = await file.readAsBytes();
-    if (bytes.length > 8 * 1024 * 1024) {
-      if (mounted) showError(ctx, 'Image too large (max 8 MB).');
+    final choice = await showModalBottomSheet<_AttachChoice>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take photo'),
+              onTap: () =>
+                  Navigator.pop(context, _AttachChoice.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Photo gallery'),
+              onTap: () =>
+                  Navigator.pop(context, _AttachChoice.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.insert_drive_file_outlined),
+              title: const Text('Send a file'),
+              onTap: () => Navigator.pop(context, _AttachChoice.file),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+    final picked = await _pickAttachment(choice);
+    if (picked == null) return;
+    if (!mounted) return;
+    final bytes = picked.$1;
+    final name = picked.$2;
+    final mime = picked.$3;
+    if (bytes.length > 10 * 1024 * 1024) {
+      showError(context, 'File too large (max 10 MB).');
       return;
     }
-    final caption = await _mediaCaptionDialog(ctx);
+    final caption = await _mediaCaptionDialog(context);
     if (caption == null) return;
     try {
       await room.sendMedia(
         bytes: bytes,
-        name: file.name,
-        mime: _mimeOf(file.name),
+        name: name,
+        mime: mime,
         caption: caption,
       );
     } catch (e) {
       if (mounted) showError(context, e);
+    }
+  }
+
+  Future<(Uint8List, String, String)?> _pickAttachment(
+      _AttachChoice choice) async {
+    switch (choice) {
+      case _AttachChoice.camera:
+        final file = await ImagePicker()
+            .pickImage(source: ImageSource.camera, maxWidth: 1600, maxHeight: 1600);
+        if (file == null) return null;
+        return (await file.readAsBytes(), file.name, _mimeOf(file.name));
+      case _AttachChoice.gallery:
+        final file = await ImagePicker()
+            .pickImage(source: ImageSource.gallery, maxWidth: 1600, maxHeight: 1600);
+        if (file == null) return null;
+        return (await file.readAsBytes(), file.name, _mimeOf(file.name));
+      case _AttachChoice.file:
+        final res = await FilePicker.platform.pickFiles(
+          withData: true,
+          type: FileType.any,
+        );
+        if (res == null || res.files.isEmpty) return null;
+        final picked = res.files.single;
+        if (picked.bytes == null) return null;
+        return (picked.bytes!, picked.name, _mimeOf(picked.name));
     }
   }
 
@@ -236,63 +288,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
-  Future<void> _sendLocation() async {
-    final room = _room;
-    final ctx = context;
-    if (room == null || !room.unlocked) return;
-    try {
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        final req = await Geolocator.requestPermission();
-        if (req == LocationPermission.denied) {
-          if (mounted) showError(context, 'Location permission denied.');
-          return;
-        }
-      }
-      if (permission == LocationPermission.deniedForever) {
-        if (mounted) showError(context, 'Location permission denied forever.');
-        return;
-      }
-      final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
-      if (!mounted) return;
-      final label = await _locationLabelDialog(context);
-      if (label == null) return;
-      await room.sendLocation(
-        lat: pos.latitude,
-        lng: pos.longitude,
-        label: label.isEmpty ? null : label,
-      );
-    } catch (e) {
-      if (mounted) showError(ctx, e);
-    }
-  }
-
-  Future<String?> _locationLabelDialog(BuildContext context) async {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Location label'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(hintText: 'e.g. "Our shop"'),
-          maxLines: 1,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Send'),
-          ),
-        ],
-      ),
-    );
-  }
-
   static String _mimeOf(String name) {
     final ext = name.split('.').last.toLowerCase();
     switch (ext) {
@@ -307,8 +302,32 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         return 'image/jpeg';
       case 'mp4':
         return 'video/mp4';
+      case 'pdf':
+        return 'application/pdf';
+      case 'txt':
+        return 'text/plain';
+      case 'csv':
+        return 'text/csv';
+      case 'doc':
+        return 'application/msword';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'xls':
+        return 'application/vnd.ms-excel';
+      case 'xlsx':
+        return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      case 'ppt':
+        return 'application/vnd.ms-powerpoint';
+      case 'pptx':
+        return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      case 'zip':
+        return 'application/zip';
+      case 'json':
+        return 'application/json';
+      case 'mp3':
+        return 'audio/mpeg';
       default:
-        return 'image/jpeg';
+        return 'application/octet-stream';
     }
   }
 
@@ -429,17 +448,48 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
-  void _showMediaPreview(BuildContext context, Uint8List bytes, String mime) {
+  void _showMediaPreview(BuildContext context, Uint8List bytes, String mime,
+      String name) {
     final isImage = mime.startsWith('image/');
+    final isVideo = mime.startsWith('video/');
     showDialog<void>(
       context: context,
       builder: (ctx) => Dialog(
         child: Stack(
           children: [
-            Center(
-              child: isImage
-                  ? Image.memory(bytes, fit: BoxFit.contain)
-                  : const Icon(Icons.insert_drive_file, size: 48),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Center(
+                child: isImage
+                    ? Image.memory(bytes, fit: BoxFit.contain)
+                    : isVideo
+                        ? Image.memory(
+                            bytes,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => const Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.movie_outlined, size: 48),
+                                SizedBox(height: 10),
+                                Text('Video'),
+                              ],
+                            ),
+                          )
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.insert_drive_file, size: 48),
+                              const SizedBox(height: 12),
+                              Text(name,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 4),
+                              const Text('File received',
+                                  style: TextStyle(fontSize: 12)),
+                            ],
+                          ),
+              ),
             ),
             Positioned(
               right: 8,
@@ -551,8 +601,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                          emoji: (id) => _decodedEmoji[id],
                          onLongPress: () => _messageMenu(m),
                          onEmojiTap: (emoji) => _toggleReaction(m, emoji),
-                         onMediaPreview: (bytes, mime) =>
-                             _showMediaPreview(context, bytes, mime),
+                         onMediaPreview: (bytes, mime, name) =>
+                             _showMediaPreview(context, bytes, mime, name),
                        );
                     },
                   ),
@@ -586,7 +636,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             unlocked: room.unlocked,
             onSend: _sendText,
             onMedia: _sendMedia,
-            onLocation: _sendLocation,
           ),
         ],
       ),
@@ -595,9 +644,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   String _replyPreview(ChatMessage m) {
     final p = m.decrypted;
-    if (p?.type == 'media') return 'Reply to 📷 ${p?.text ?? 'Photo'}';
+    if (p?.type == 'media') return 'Reply to 📎 ${p?.media?.name ?? p?.text ?? 'File'}';
     return 'Replying to ${p?.text ?? '…'}';
   }
+}
+
+String _formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
 
 class _DialogAnswer {
@@ -609,6 +664,8 @@ class _DialogAnswer {
   final bool cancelled;
 }
 
+enum _AttachChoice { camera, gallery, file }
+
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
@@ -616,7 +673,6 @@ class _Composer extends StatelessWidget {
     required this.unlocked,
     required this.onSend,
     required this.onMedia,
-    required this.onLocation,
   });
 
   final TextEditingController controller;
@@ -624,7 +680,6 @@ class _Composer extends StatelessWidget {
   final bool unlocked;
   final VoidCallback onSend;
   final VoidCallback onMedia;
-  final VoidCallback onLocation;
 
   @override
   Widget build(BuildContext context) {
@@ -637,13 +692,8 @@ class _Composer extends StatelessWidget {
           children: [
             IconButton(
               onPressed: unlocked ? onMedia : null,
-              icon: const Icon(Icons.add_photo_alternate_outlined),
-              tooltip: 'Send photo',
-            ),
-            IconButton(
-              onPressed: unlocked ? onLocation : null,
-              icon: const Icon(Icons.location_on_outlined),
-              tooltip: 'Share location',
+              icon: const Icon(Icons.attach_file_outlined),
+              tooltip: 'Send media',
             ),
             Expanded(
               child: TextField(
@@ -702,7 +752,7 @@ class _MessageBubble extends StatelessWidget {
   final String? Function(int reactionId) emoji;
   final VoidCallback onLongPress;
   final void Function(String emoji) onEmojiTap;
-  final void Function(Uint8List bytes, String mime) onMediaPreview;
+  final void Function(Uint8List bytes, String mime, String name) onMediaPreview;
 
   Map<String, List<ReactionInfo>> _groupedReactions() {
     final groups = <String, List<ReactionInfo>>{};
@@ -753,25 +803,95 @@ class _MessageBubble extends StatelessWidget {
             );
           }
           final media = snapshot.data!;
+          final isImage = media.mime.startsWith('image/');
+          final isVideo = media.mime.startsWith('video/');
           return GestureDetector(
-            onTap: () => onMediaPreview(media.bytes, media.mime),
+            onTap: () => onMediaPreview(media.bytes, media.mime, media.name),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.memory(
-                    media.bytes,
-                    width: 220,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                    errorBuilder: (_, __, ___) => const SizedBox(
+                if (isImage) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.memory(
+                      media.bytes,
                       width: 220,
-                      height: 120,
-                      child: Icon(Icons.broken_image_outlined),
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                      errorBuilder: (_, __, ___) => const SizedBox(
+                        width: 220,
+                        height: 120,
+                        child: Icon(Icons.broken_image_outlined),
+                      ),
                     ),
                   ),
-                ),
+                ] else if (isVideo) ...[
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.memory(
+                          media.bytes,
+                          width: 220,
+                          height: 140,
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                          errorBuilder: (_, __, ___) => const SizedBox(
+                            width: 220,
+                            height: 140,
+                            child: Icon(Icons.movie_outlined),
+                          ),
+                        ),
+                      ),
+                      const CircleAvatar(
+                        backgroundColor: Colors.black54,
+                        child: Icon(Icons.play_arrow_rounded,
+                            color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ] else
+                  Container(
+                    width: 220,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surface
+                          .withOpacity(0.6),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.insert_drive_file_outlined,
+                            size: 32),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                media.name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                              if (payload.media?.size != null) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  _formatBytes(payload.media!.size!),
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 if ((payload.text ?? '').isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(payload.text!),
@@ -781,28 +901,7 @@ class _MessageBubble extends StatelessWidget {
           );
         },
       );
-     } else if (payload?.type == 'location' && payload!.location != null) {
-      final loc = payload.location!;
-      final label = loc.label;
-      content = Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.location_on_outlined, size: 28),
-          if (label != null && label.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(label,
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.bold)),
-          ],
-          const SizedBox(height: 2),
-          Text(
-            '${loc.lat.toStringAsFixed(5)}, ${loc.lng.toStringAsFixed(5)}',
-            style: const TextStyle(fontSize: 12, height: 1.2),
-          ),
-        ],
-      );
-    } else {
+     } else {
       content = Text(payload?.text ?? '',
           style: const TextStyle(fontSize: 15, height: 1.3));
     }

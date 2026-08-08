@@ -15,6 +15,12 @@ class ChatListScreen extends StatefulWidget {
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
 
+class _VaultAnswer {
+  const _VaultAnswer(this.ok, [this.password]);
+  final bool ok;
+  final String? password;
+}
+
 class _ChatListScreenState extends State<ChatListScreen> {
   List<ConversationSummary> _conversations = [];
   List<BroadcastInfo> _broadcasts = [];
@@ -59,10 +65,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> _newChat() async {
     final identity = context.read<ChatIdentity>();
     final session = context.read<Session>();
-    if (!identity.hasIdentity) {
-      final ok = await _ensureIdentity(identity, session);
-      if (!ok) return;
-    }
+    final ok = await _ensureIdentity(identity, session);
+    if (!ok) return;
     if (mounted) context.push('/chat/new');
   }
 
@@ -75,13 +79,62 @@ class _ChatListScreenState extends State<ChatListScreen> {
             ? (({required String message}) async {
                 return VaultPrompt(result: VaultPromptResult.unlocked, password: session.sessionPassword!);
               })
-            : null,
+            : _vaultPrompt,
       );
       return true;
     } catch (e) {
       if (mounted) showError(context, e);
       return false;
     }
+  }
+
+  Future<VaultPrompt> _vaultPrompt({required String message}) async {
+    if (!mounted) return const VaultPrompt(result: VaultPromptResult.cancelled);
+    final password = TextEditingController();
+    final result = await showDialog<_VaultAnswer>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Restore encrypted chat keys'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(message),
+            const SizedBox(height: 14),
+            TextField(
+              controller: password,
+              obscureText: true,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Account password',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, const _VaultAnswer(false)),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              context,
+              _VaultAnswer(true, password.text),
+            ),
+            child: const Text('Unlock chats'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || !result.ok) {
+      return const VaultPrompt(result: VaultPromptResult.cancelled);
+    }
+    return VaultPrompt(
+      result: VaultPromptResult.unlocked,
+      password: result.password,
+    );
   }
 
   @override

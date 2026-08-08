@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -7,7 +8,10 @@ import '../../services/reservation_service.dart';
 import '../../widgets/common.dart';
 
 class ReservationsScreen extends StatefulWidget {
-  const ReservationsScreen({super.key});
+  const ReservationsScreen({super.key, this.onFindBarber});
+
+  /// Switches the app to the Explore tab (when inside the home shell).
+  final VoidCallback? onFindBarber;
 
   @override
   State<ReservationsScreen> createState() => _ReservationsScreenState();
@@ -74,11 +78,14 @@ class _ReservationsScreenState extends State<ReservationsScreen> {
           : _reservations == null
               ? const LoadingView()
               : _reservations!.isEmpty
-                  ? const MessageView(
+                  ? MessageView(
                       icon: Icons.event_busy_rounded,
                       title: 'No bookings yet',
                       subtitle:
                           'Find a barbershop on the Explore tab and book an appointment.',
+                      onRetry: widget.onFindBarber,
+                      retryLabel: 'Find a barbershop',
+                      retryIcon: Icons.storefront_rounded,
                     )
                   : RefreshIndicator(
                       onRefresh: _load,
@@ -189,6 +196,31 @@ class _BookingCard extends StatelessWidget {
                   ),
                   child: const Text('Cancel booking'),
                 ),
+              ),
+            ],
+            if (r.shopSlug != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          context.push('/shop/${r.shopSlug}/book'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 42),
+                      ),
+                      icon: const Icon(Icons.event_available_rounded,
+                          size: 18),
+                      label: const Text('Book again'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  IconButton.outlined(
+                    tooltip: 'View shop',
+                    onPressed: () => context.push('/shop/${r.shopSlug}'),
+                    icon: const Icon(Icons.storefront_outlined, size: 20),
+                  ),
+                ],
               ),
             ],
           ],

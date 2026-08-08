@@ -157,13 +157,32 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
           left: 16,
           right: 16,
           bottom: 12,
-          child: ElevatedButton.icon(
-            onPressed: () => context.push('/shop/${shop.slug}/book'),
-            icon: const Icon(Icons.event_available_rounded),
-            label: const Text('Book an appointment'),
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size.fromHeight(56),
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => context.push('/shop/${shop.slug}/book'),
+                  icon: const Icon(Icons.event_available_rounded),
+                  label: const Text('Book an appointment'),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(56),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton(
+                onPressed: () =>
+                    openMapsDirections(shop.latitude, shop.longitude),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(56, 56),
+                  padding: const EdgeInsets.all(0),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: const Icon(Icons.directions_rounded),
+              ),
+            ],
           ),
         ),
       ],

@@ -60,16 +60,14 @@ class ChatPayload {
     this.type = 'text',
     this.text,
     this.media,
-    this.location,
     this.replyTo,
     this.replyText,
     this.emoji,
   });
 
-  final String type; // 'text' | 'media' | 'location'
+  final String type; // 'text' | 'media'
   final String? text;
   final MediaMeta? media;
-  final LocationMeta? location;
   final int? replyTo;
   final String? replyText;
   final String? emoji;
@@ -80,9 +78,6 @@ class ChatPayload {
       text: json['text'] as String?,
       media: json['m'] != null
           ? MediaMeta.fromJson(json['m'] as Map<String, dynamic>)
-          : null,
-      location: json['l'] != null
-          ? LocationMeta.fromJson(json['l'] as Map<String, dynamic>)
           : null,
       replyTo: json['reply_to'] as int?,
       replyText: json['reply_text'] as String?,
@@ -95,7 +90,6 @@ class ChatPayload {
       't': type,
       if (text != null) 'text': text,
       if (media != null) 'm': media!.toJson(),
-      if (location != null) 'l': location!.toJson(),
       if (replyTo != null) 'reply_to': replyTo,
       if (replyText != null) 'reply_text': replyText,
       if (emoji != null) 'emoji': emoji,
@@ -137,33 +131,6 @@ class MediaMeta {
   }
 }
 
-class LocationMeta {
-  const LocationMeta({
-    required this.lat,
-    required this.lng,
-    this.label,
-  });
-
-  final double lat;
-  final double lng;
-  final String? label;
-
-  factory LocationMeta.fromJson(Map<String, dynamic> json) {
-    return LocationMeta(
-      lat: (json['lat'] as num).toDouble(),
-      lng: (json['lng'] as num).toDouble(),
-      label: json['label'] as String?,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'lat': lat,
-      'lng': lng,
-      if (label != null) 'label': label,
-    };
-  }
-}
 class ChatMessage {
   ChatMessage({
     required this.id,

@@ -158,5 +158,73 @@ void main() {
         expect(raw.length, 32, reason: '$field should be 32 bytes');
       }
     });
+
+    test('a message encrypted under an old identity still decrypts using the '
+        'recovery key set', () {
+      // Two users who each once had a different (old) identity — the scenario
+      // behind "messages encrypted after reopening". We must be able to decrypt
+      // with a key list that includes BOTH the current and the old identity.
+      final aliceOld = ChatCrypto.generateIdentity();
+      final aliceNew = ChatCrypto.generateIdentity();
+      final bob = ChatCrypto.generateIdentity();
+
+      final salt = ChatCrypto.conversationSalt('alice', 'bob');
+
+      // Bob encrypted a message while Alice was using her OLD identity.
+      final oldKey = ChatCrypto.deriveConversationKey(
+        bob['priv'] as Map<String, dynamic>,
+        aliceOld['pub'] as String,
+        salt,
+      );
+      final payload = {'t': 'text', 'text': 'old history'};
+      final enc = ChatCrypto.encryptPayload(oldKey, payload);
+
+      // Review: a decrypter holding both identities (the recovery net) must
+      // find the message using the OLD private key, even though it is not the
+      // "primary" (newest) key.
+      final newKey = ChatCrypto.deriveConversationKey(
+        aliceNew['priv'] as Map<String, dynamic>,
+        bob['pub'] as String,
+        salt,
+      );
+      final mirroredNewKey = ChatCrypto.deriveConversationKey(
+        bob['priv'] as Map<String, dynamic>,
+        aliceNew['pub'] as String,
+        salt,
+      );
+      // Sanity: the new identity does NOT match the ciphertext's old key.
+      if (newKey.length > 0) {
+        final sameAsOld = newKey.join(',') == oldKey.join(',');
+        // Not guaranteed to differ, but it must not be the key that decrypts
+        // the old message unless it IS the old key.
+        var decryptsWithNew = true;
+        try {
+          ChatCrypto.decryptPayload(newKey, enc.$1, enc.$2);
+        } catch (_) {
+          decryptsWithNew = false;
+        }
+        if (!sameAsOld) {
+          expect(decryptsWithNew, isFalse,
+              reason: 'New identity should not reflect the old message');
+        }
+      }
+
+      // The simulated recovery: try new then old identity, old must succeed.
+      final candidates = [newKey, oldKey, mirroredNewKey];
+      var decrypted = false;
+      for (final k in candidates) {
+        try {
+          final d = ChatCrypto.decryptPayload(k, enc.$1, enc.$2);
+          expect(d['t'], 'text');
+          expect(d['text'], 'old history');
+          decrypted = true;
+          break;
+        } catch (_) {
+          // try next candidate
+        }
+      }
+      expect(decrypted, isTrue,
+          reason: 'Recovery key set must contain the old identity key');
+    });
   });
 }

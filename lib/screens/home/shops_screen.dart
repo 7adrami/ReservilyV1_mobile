@@ -196,7 +196,12 @@ class _ShopsScreenState extends State<ShopsScreen> {
       );
     }
     if (_mapView) {
-      return _MapView(shops: shops);
+      return _MapView(
+        shops: shops,
+        userLat: _lat,
+        userLng: _lng,
+        onNearMe: _useMyLocation,
+      );
     }
     return RefreshIndicator(
       onRefresh: _load,
@@ -306,6 +311,21 @@ class _ShopCard extends StatelessWidget {
                               color: Theme.of(context).colorScheme.primary),
                         ),
                       ],
+                      const SizedBox(height: 6),
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            openMapsDirections(shop.latitude, shop.longitude),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 34),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          textStyle: const TextStyle(
+                              fontSize: 12.5, fontWeight: FontWeight.w600),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.directions_rounded, size: 16),
+                        label: const Text('Get directions'),
+                      ),
                     ],
                   ),
                 ),
@@ -318,70 +338,260 @@ class _ShopCard extends StatelessWidget {
   }
 }
 
-class _MapView extends StatelessWidget {
-  const _MapView({required this.shops});
+class _MapView extends StatefulWidget {
+  const _MapView({
+    required this.shops,
+    this.userLat,
+    this.userLng,
+    this.onNearMe,
+  });
 
   final List<Shop> shops;
+  final double? userLat;
+  final double? userLng;
+  final VoidCallback? onNearMe;
+
+  @override
+  State<_MapView> createState() => _MapViewState();
+}
+
+class _MapViewState extends State<_MapView> {
+  final MapController _controller = MapController();
+  bool _mapReady = false;
+  bool _centeredOnUser = false;
+
+  @override
+  void didUpdateWidget(covariant _MapView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final userLat = widget.userLat;
+    final userLng = widget.userLng;
+    if (userLat != null &&
+        userLng != null &&
+        (userLat != oldWidget.userLat || userLng != oldWidget.userLng)) {
+      _recenterOnUser(LatLng(userLat, userLng));
+    }
+  }
+
+  void _recenterOnUser(LatLng pos) {
+    if (!_mapReady) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _controller.move(pos, 15);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final userPos = (widget.userLat != null && widget.userLng != null)
+        ? LatLng(widget.userLat!, widget.userLng!)
+        : null;
+    final shops = widget.shops;
     final lat = shops
         .map((s) => s.latitude)
         .reduce((a, b) => (a + b) / 2);
     final lng = shops
         .map((s) => s.longitude)
         .reduce((a, b) => (a + b) / 2);
-    return FlutterMap(
-      options: MapOptions(
-        initialCenter: LatLng(lat, lng),
-        initialZoom: 9,
-        interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
-      ),
+    return Stack(
       children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.reservily.app',
-        ),
-        MarkerLayer(
-          markers: [
-            for (final shop in shops)
-              Marker(
-                point: LatLng(shop.latitude, shop.longitude),
-                width: 90,
-                height: 48,
-                child: GestureDetector(
-                  onTap: () => context.push('/shop/${shop.slug}'),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surface,
-                          borderRadius: BorderRadius.circular(10),
-                          boxShadow: const [
-                            BoxShadow(
-                                color: Colors.black26, blurRadius: 6),
-                          ],
-                        ),
-                        child: Text(
-                          shop.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 11, fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      const Icon(Icons.location_pin,
-                          color: AppTheme.brand, size: 28),
-                    ],
+        FlutterMap(
+          mapController: _controller,
+          options: MapOptions(
+            initialCenter: userPos ?? LatLng(lat, lng),
+            initialZoom: userPos != null ? 15 : 9,
+            interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
+            onMapReady: () {
+              _mapReady = true;
+              if (userPos != null && !_centeredOnUser) {
+                _centeredOnUser = true;
+                _controller.move(userPos, 15);
+              }
+            },
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.reservily.app',
+            ),
+            if (userPos != null)
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: userPos,
+                    width: 40,
+                    height: 40,
+                    child: _UserDot(),
                   ),
-                ),
+                ],
               ),
+            MarkerLayer(
+              markers: [
+                for (final shop in shops)
+                  Marker(
+                    point: LatLng(shop.latitude, shop.longitude),
+                    width: 90,
+                    height: 48,
+                    child: GestureDetector(
+                      onTap: () => _openShopSheet(context, shop, userPos),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.surface,
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: const [
+                                BoxShadow(
+                                    color: Colors.black26, blurRadius: 6),
+                              ],
+                            ),
+                            child: Text(
+                              shop.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 11, fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          const Icon(Icons.location_pin,
+                              color: AppTheme.brand, size: 28),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ],
         ),
+        if (widget.onNearMe != null)
+          Positioned(
+            right: 12,
+            bottom: 20,
+            child: FloatingActionButton.extended(
+              heroTag: 'near-me',
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              foregroundColor: Colors.white,
+              onPressed: widget.onNearMe,
+              icon: const Icon(Icons.my_location_rounded),
+              label: const Text('Near me'),
+            ),
+          ),
       ],
+    );
+  }
+
+  void _openShopSheet(BuildContext context, Shop shop, LatLng? userPos) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  AppPhoto(shop.photo,
+                      borderRadius: 14, height: 56),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(shop.name,
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 2),
+                        Text('${shop.city} · ${shop.address}',
+                            style: TextStyle(
+                                fontSize: 12.5,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant)),
+                        if (shop.distanceKm != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              '${shop.distanceKm!.toStringAsFixed(1)} km away',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _goDirections(shop.latitude, shop.longitude, userPos);
+                      },
+                      icon: const Icon(Icons.directions_rounded),
+                      label: const Text('Get directions'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        context.push('/shop/${shop.slug}');
+                      },
+                      icon: const Icon(Icons.storefront_rounded),
+                      label: const Text('View shop'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _goDirections(
+      double lat, double lng, LatLng? userPos) async {
+    try {
+      await openMapsDirections(
+        lat,
+        lng,
+        originLat: userPos?.latitude,
+        originLng: userPos?.longitude,
+      );
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+}
+
+class _UserDot extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 22,
+        height: 22,
+        decoration: BoxDecoration(
+          color: const Color(0xFF2563EB),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 3),
+          boxShadow: const [
+            BoxShadow(color: Colors.black26, blurRadius: 8),
+          ],
+        ),
+      ),
     );
   }
 }

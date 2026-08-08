@@ -133,8 +133,8 @@ class _Logo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Container(
-        width: 76,
-        height: 76,
+        width: 84,
+        height: 84,
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
@@ -150,9 +150,16 @@ class _Logo extends StatelessWidget {
             ),
           ],
         ),
+        clipBehavior: Clip.antiAlias,
         alignment: Alignment.center,
-        child: const Icon(Icons.content_cut_rounded,
-            color: Colors.white, size: 40),
+        child: Image.asset(
+          'assets/icons/app_icon.png',
+          width: 84,
+          height: 84,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const Icon(Icons.storefront_rounded,
+              color: Colors.white, size: 40),
+        ),
       ),
     );
   }

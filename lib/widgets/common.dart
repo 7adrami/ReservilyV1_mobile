@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api_exception.dart';
 import '../core/constants.dart';
@@ -19,6 +20,27 @@ String money(num? value) {
   final whole = v % 1 == 0;
   return '${whole ? v.toStringAsFixed(0) : v.toStringAsFixed(2)} '
       '${AppConfig.currency}';
+}
+
+/// Opens Google Maps turn-by-turn directions to a destination, optionally
+/// starting from the customer's current position.
+Future<void> openMapsDirections(
+  double lat,
+  double lng, {
+  double? originLat,
+  double? originLng,
+}) async {
+  var url = 'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng';
+  if (originLat != null && originLng != null) {
+    url += '&origin=$originLat,$originLng';
+  }
+  final ok = await launchUrl(
+    Uri.parse(url),
+    mode: LaunchMode.externalApplication,
+  );
+  if (!ok) {
+    throw Exception('Could not open Google Maps.');
+  }
 }
 
 String initialsOf(String name) {
@@ -159,6 +181,8 @@ class MessageView extends StatelessWidget {
     this.message,
     this.subtitle,
     this.onRetry,
+    this.retryLabel,
+    this.retryIcon,
   });
 
   final IconData icon;
@@ -166,6 +190,8 @@ class MessageView extends StatelessWidget {
   final String? message;
   final String? subtitle;
   final VoidCallback? onRetry;
+  final String? retryLabel;
+  final IconData? retryIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -192,8 +218,8 @@ class MessageView extends StatelessWidget {
               const SizedBox(height: 12),
               ElevatedButton.icon(
                 onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('Retry'),
+                icon: Icon(retryIcon ?? Icons.refresh_rounded),
+                label: Text(retryLabel ?? 'Retry'),
               ),
             ],
           ],

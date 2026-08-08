@@ -1,8 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:geolocator_web/geolocator_web.dart'
+    if (dart.library.io) 'package:reservily/stubs/web_geolocator_stub.dart'
+    as web_geolocator;
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
@@ -28,6 +33,7 @@ class _ShopsScreenState extends State<ShopsScreen> {
   double? _lat;
   double? _lng;
   bool _mapView = false;
+  bool _locating = false;
   Timer? _debounce;
 
   @override
@@ -44,42 +50,144 @@ class _ShopsScreenState extends State<ShopsScreen> {
 
   Future<void> _load() async {
     setState(() => _error = null);
-    final shopService = context.read<ShopService>();
-    final cities = await shopService.cities();
-    final shops = await shopService.listShops(
-      query: _query.isEmpty ? null : _query,
-          city: _city,
-          lat: _lat,
-          lng: _lng,
+    try {
+      final shopService = context.read<ShopService>();
+      final cities = await shopService.cities();
+      final shops = await shopService.listShops(
+        query: _query.isEmpty ? null : _query,
+        city: _city,
+        lat: _lat,
+        lng: _lng,
+      );
+      if (!mounted) return;
+      setState(() {
+        _shops = shops;
+        _cities = cities;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = friendlyError(e));
+    }
+  }
+
+  /// Fast location: races the device/browser GPS fix against an IP-based
+  /// location, so "Near me" answers in well under a second whenever possible
+  /// and can never hang (hard 5s cap).
+  Future<Position> _locate() async {
+    final completer = Completer<Position>();
+    Future<void> track(Future<Position> candidate) async {
+      try {
+        final pos = await candidate;
+        if (!completer.isCompleted) completer.complete(pos);
+      } catch (_) {}
+    }
+
+    unawaited(track(_gpsFix()));
+    unawaited(track(_ipLocation()));
+    return completer.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => throw TimeoutException('Location timed out'),
+    );
+  }
+
+  /// Device/browser GPS fix: cached position first, then a short fresh fix.
+  Future<Position> _gpsFix() async {
+    if (kIsWeb) {
+      return GeolocatorPlatform.instance.getCurrentPosition(
+        locationSettings: web_geolocator.WebSettings(
+          accuracy: LocationAccuracy.low,
+          timeLimit: const Duration(seconds: 4),
+          maximumAge: const Duration(minutes: 10),
+        ),
+      );
+    }
+    try {
+      final cached = await Geolocator.getLastKnownPosition();
+      if (cached != null) return cached;
+    } catch (_) {}
+    return Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.medium,
+      timeLimit: const Duration(seconds: 4),
+    );
+  }
+
+  /// Approximate location from the IP address (~300ms, no permission needed).
+  Future<Position> _ipLocation() async {
+    for (final url in const [
+      'https://ipapi.co/json/',
+      'https://ipinfo.io/json',
+    ]) {
+      try {
+        final resp = await Dio().get<Map<String, dynamic>>(
+          url,
+          options: Options(
+            responseType: ResponseType.json,
+            receiveTimeout: const Duration(seconds: 3),
+          ),
         );
-    if (!mounted) return;
-    setState(() {
-      _shops = shops;
-      _cities = cities;
-    });
+        final pos = _parseIpPosition(resp.data);
+        if (pos != null) return pos;
+      } catch (_) {}
+    }
+    throw const FormatException('IP location unavailable');
+  }
+
+  Position? _parseIpPosition(Map<String, dynamic>? data) {
+    if (data == null) return null;
+    double? lat;
+    double? lng;
+    final loc = data['loc'];
+    if (loc is String) {
+      final parts = loc.split(',');
+      if (parts.length == 2) {
+        lat = double.tryParse(parts[0].trim());
+        lng = double.tryParse(parts[1].trim());
+      }
+    }
+    lat ??= _asLatLng(data['latitude']) ?? _asLatLng(data['lat']);
+    lng ??= _asLatLng(data['longitude']) ?? _asLatLng(data['lng']);
+    if (lat == null || lng == null) return null;
+    return Position(
+      latitude: lat,
+      longitude: lng,
+      timestamp: DateTime.now(),
+      accuracy: 5000,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: 0,
+      speedAccuracy: 0,
+      floor: null,
+      isMocked: false,
+    );
+  }
+
+  double? _asLatLng(Object? value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 
   Future<void> _useMyLocation() async {
-    final permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      final req = await Geolocator.requestPermission();
-      if (req == LocationPermission.denied) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location permission denied')),
-        );
-        return;
-      }
-    }
-    if (permission == LocationPermission.deniedForever) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Location permission denied')),
-      );
-      return;
-    }
+    if (_locating) return;
+    setState(() => _locating = true);
     try {
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+      if (!kIsWeb) {
+        var permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.denied ||
+            permission == LocationPermission.deniedForever) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location permission denied')),
+          );
+          return;
+        }
+      }
+      final pos = await _locate();
+      if (!mounted) return;
       setState(() {
         _lat = pos.latitude;
         _lng = pos.longitude;
@@ -87,11 +195,17 @@ class _ShopsScreenState extends State<ShopsScreen> {
       });
       _load();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not get location: $e')),
-        );
-      }
+      if (!mounted) return;
+      final message = e is PermissionDeniedException
+          ? 'Location access is blocked. Allow location for this site in your browser or app settings, then try again.'
+          : e is TimeoutException
+              ? 'Could not determine your location. Check your internet connection and try again.'
+              : 'Could not get your location: $e';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      if (mounted) setState(() => _locating = false);
     }
   }
 
@@ -118,8 +232,14 @@ class _ShopsScreenState extends State<ShopsScreen> {
             ),
           IconButton(
             tooltip: 'Use my location',
-            onPressed: _useMyLocation,
-            icon: const Icon(Icons.my_location),
+            onPressed: _locating ? null : _useMyLocation,
+            icon: _locating
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.my_location),
           ),
           IconButton(
             tooltip: _mapView ? 'List view' : 'Map view',
@@ -201,6 +321,7 @@ class _ShopsScreenState extends State<ShopsScreen> {
         userLat: _lat,
         userLng: _lng,
         onNearMe: _useMyLocation,
+        locating: _locating,
       );
     }
     return RefreshIndicator(
@@ -344,12 +465,14 @@ class _MapView extends StatefulWidget {
     this.userLat,
     this.userLng,
     this.onNearMe,
+    this.locating = false,
   });
 
   final List<Shop> shops;
   final double? userLat;
   final double? userLng;
   final VoidCallback? onNearMe;
+  final bool locating;
 
   @override
   State<_MapView> createState() => _MapViewState();
@@ -429,7 +552,7 @@ class _MapViewState extends State<_MapView> {
                   Marker(
                     point: LatLng(shop.latitude, shop.longitude),
                     width: 90,
-                    height: 48,
+                    height: 52,
                     child: GestureDetector(
                       onTap: () => _openShopSheet(context, shop, userPos),
                       child: Column(
@@ -473,8 +596,17 @@ class _MapViewState extends State<_MapView> {
               backgroundColor: Theme.of(context).colorScheme.primary,
               foregroundColor: Colors.white,
               onPressed: widget.onNearMe,
-              icon: const Icon(Icons.my_location_rounded),
-              label: const Text('Near me'),
+              icon: widget.locating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.my_location_rounded),
+              label: Text(widget.locating ? 'Locating…' : 'Near me'),
             ),
           ),
       ],

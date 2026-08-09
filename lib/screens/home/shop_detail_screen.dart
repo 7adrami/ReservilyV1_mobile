@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../models/shop.dart';
 import '../../services/shop_service.dart';
@@ -19,6 +20,9 @@ class ShopDetailScreen extends StatefulWidget {
 class _ShopDetailScreenState extends State<ShopDetailScreen> {
   Shop? _shop;
   String? _error;
+  int _rating = 0;
+  final TextEditingController _comment = TextEditingController();
+  bool _posting = false;
 
   @override
   void initState() {
@@ -26,13 +30,53 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _comment.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     setState(() => _error = null);
     try {
       final shop = await context.read<ShopService>().shopDetail(widget.slug);
-      if (mounted) setState(() => _shop = shop);
+      if (mounted) {
+        setState(() {
+          _shop = shop;
+          _rating = shop.myRating ?? 0;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = friendlyError(e));
+    }
+  }
+
+  Future<void> _saveRating() async {
+    if (_rating < 1) return;
+    try {
+      await context.read<ShopService>().rateShop(widget.slug, _rating);
+      if (!mounted) return;
+      showMessage(context, 'Thanks for your rating!');
+      _load();
+    } catch (e) {
+      if (mounted) showMessage(context, friendlyError(e));
+    }
+  }
+
+  Future<void> _postComment() async {
+    final body = _comment.text.trim();
+    if (body.isEmpty) return;
+    setState(() => _posting = true);
+    try {
+      await context.read<ShopService>().reviewShop(widget.slug, body);
+      _comment.clear();
+      if (!mounted) return;
+      showMessage(context, 'Thanks for your comment!');
+      _load();
+    } catch (e) {
+      if (mounted) showMessage(context, friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _posting = false);
     }
   }
 
@@ -55,6 +99,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
   }
 
   Widget _content(Shop shop) {
+    final isOwner = context.select<Session, bool>((s) => s.user?.isOwner ?? false);
     return Stack(
       children: [
         RefreshIndicator(
@@ -140,6 +185,74 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    _Card(
+                      title: 'Rate this shop',
+                      child: isOwner
+                          ? Text(
+                              'Barbershop owners can comment but cannot rate shops.',
+                              style: TextStyle(
+                                  fontSize: 13.5,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant),
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _rating > 0
+                                      ? 'Your rating: $_rating★ — you can change it below.'
+                                      : 'Give your rating once.',
+                                  style: const TextStyle(fontSize: 13.5),
+                                ),
+                                const SizedBox(height: 8),
+                                StarInput(value: _rating, onChanged: (v) {
+                                  setState(() => _rating = v);
+                                }),
+                                const SizedBox(height: 12),
+                                FilledButton(
+                                  onPressed: _rating > 0 ? _saveRating : null,
+                                  child: const Text('Save my rating'),
+                                ),
+                              ],
+                            ),
+                    ),
+                    const SizedBox(height: 12),
+                    _Card(
+                      title: 'Leave a comment',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'You can add as many comments as you like.',
+                            style: TextStyle(fontSize: 13.5),
+                          ),
+                          const SizedBox(height: 10),
+                          AppField(
+                            'Your comment',
+                            controller: _comment,
+                            maxLines: 3,
+                          ),
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: FilledButton.icon(
+                              onPressed: _posting ? null : _postComment,
+                              icon: _posting
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.send_rounded, size: 18),
+                              label: const Text('Post comment'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
                     const SectionTitle('Latest reviews'),
                     if (shop.reviews.isEmpty)
                       const Padding(
@@ -147,7 +260,7 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                         child: Text('No reviews yet.'),
                       )
                     else
-                      ...shop.reviews.map((r) => _ReviewTile(review: r)),
+                      ...shop.reviews.map((r) => ReviewTile(review: r)),
                   ],
                 ),
               ),
@@ -277,59 +390,28 @@ class _BarberTile extends StatelessWidget {
   }
 }
 
-class _ReviewTile extends StatelessWidget {
-  const _ReviewTile({required this.review});
+class _Card extends StatelessWidget {
+  const _Card({required this.title, required this.child});
 
-  final ReviewItem review;
+  final String title;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final when = review.createdAt;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AppAvatar(review.avatar, name: review.userName ?? '', size: 40),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(review.userName ?? '',
-                          style: const TextStyle(
-                              fontSize: 14, fontWeight: FontWeight.w700)),
-                    ),
-                    if (when != null)
-                      Text(
-                        _fmt(when),
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(review.body ?? '',
-                    style: const TextStyle(fontSize: 13.5, height: 1.4)),
-              ],
-            ),
-          ),
-        ],
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title,
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 10),
+            child,
+          ],
+        ),
       ),
     );
-  }
-
-  static String _fmt(DateTime d) {
-    final now = DateTime.now();
-    final diff = now.difference(d);
-    if (diff.inDays < 1) return 'today';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return '${d.day}/${d.month}/${d.year}';
   }
 }

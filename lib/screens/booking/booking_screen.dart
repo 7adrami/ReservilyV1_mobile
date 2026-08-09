@@ -38,7 +38,7 @@ class _BookingScreenState extends State<BookingScreen> {
   bool _loadingOptions = true;
 
   BookingBarber? _barber;
-  BookingService? _service;
+  final List<BookingService> _selectedServices = [];
   DateTime _date = DateTime.now();
   Availability? _availability;
   bool _loadingSlots = false;
@@ -110,7 +110,7 @@ class _BookingScreenState extends State<BookingScreen> {
   Future<void> _selectBarber(BookingBarber? b) async {
     setState(() {
       _barber = b;
-      _service = null;
+      _selectedServices.clear();
       _services = [];
       _availability = null;
       _selectedTime = null;
@@ -142,7 +142,9 @@ class _BookingScreenState extends State<BookingScreen> {
             barberId: barber.pk,
             date: _date,
             shopSlug: widget.slug,
-            serviceId: _service?.pk,
+            serviceIds: _selectedServices.isEmpty
+                ? null
+                : _selectedServices.map((s) => s.pk).toList(),
           );
       if (!mounted) return;
       setState(() {
@@ -193,11 +195,13 @@ class _BookingScreenState extends State<BookingScreen> {
 
   Future<void> _submit() async {
     final barber = _barber;
-    final service = _service;
     final time = _selectedTime;
     final bytes = _proofBytes;
     final proofName = _proof?.name ?? 'proof.jpg';
-    if (barber == null || service == null || time == null || bytes == null) {
+    if (barber == null ||
+        _selectedServices.isEmpty ||
+        time == null ||
+        bytes == null) {
       showError(context, 'Complete every step first.');
       return;
     }
@@ -206,7 +210,7 @@ class _BookingScreenState extends State<BookingScreen> {
       final reservation = await context.read<ReservationService>().create(
             shopSlug: widget.slug,
             barberId: barber.pk,
-            serviceId: service.pk,
+            serviceIds: _selectedServices.map((s) => s.pk).toList(),
             date: _date,
             startTime: time,
             paymentProofBytes: bytes,
@@ -270,7 +274,6 @@ class _BookingScreenState extends State<BookingScreen> {
 
   Widget _buildFlow() {
     final barber = _barber;
-    final service = _service;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
@@ -299,33 +302,38 @@ class _BookingScreenState extends State<BookingScreen> {
                 ),
         ),
         _Section(
-          title: '2 · Choose a service',
+          title: '2 · Choose services',
           child: barber == null
               ? const Text('Pick a barber first — services are per barber.')
               : _services.isEmpty
                   ? const Text('This barber offers no services yet.')
-                  : DropdownButtonFormField<BookingService>(
-                      value: service,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Service',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
+                  : Column(
+                      children: [
                         for (final s in _services)
-                          DropdownMenuItem(
-                            value: s,
-                            child: Text(
+                          CheckboxListTile(
+                            value: _selectedServices.contains(s),
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: Text(
                               '${s.name} — ${money(s.price)} · '
                               '${s.durationMinutes} min',
                               overflow: TextOverflow.ellipsis,
                             ),
+                            onChanged: (checked) =>
+                                _toggleService(s, checked ?? false),
+                          ),
+                        if (_selectedServices.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(
+                              'Total: ${money(_selectedTotal)} · '
+                              '$_selectedDuration min',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700),
+                            ),
                           ),
                       ],
-                      onChanged: (s) {
-                        setState(() => _service = s);
-                        _loadAvailability();
-                      },
                     ),
         ),
         _Section(
@@ -413,7 +421,7 @@ class _BookingScreenState extends State<BookingScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (barber != null)
-                ..._walletPanel(barber, service),
+                ..._walletPanel(barber),
               OutlinedButton.icon(
                 onPressed: _pickProof,
                 icon: Icon(_proof == null
@@ -449,11 +457,27 @@ class _BookingScreenState extends State<BookingScreen> {
     );
   }
 
-  List<Widget> _walletPanel(BookingBarber barber, BookingService? service) {
-    final serviceAmount =
-        service?.price == null || service!.price! <= 0 ? null : service.price!;
+  double get _selectedTotal => _selectedServices.fold(
+      0, (sum, s) => sum + (s.price ?? 0));
+  int get _selectedDuration => _selectedServices.fold(
+      0, (sum, s) => sum + s.durationMinutes);
+
+  void _toggleService(BookingService s, bool checked) {
+    setState(() {
+      if (checked) {
+        _selectedServices.add(s);
+      } else {
+        _selectedServices.remove(s);
+      }
+    });
+    _loadAvailability();
+  }
+
+  List<Widget> _walletPanel(BookingBarber barber) {
+    final serviceNames =
+        _selectedServices.map((s) => s.name).join(' + ');
     return [
-      if (serviceAmount != null)
+      if (_selectedServices.isNotEmpty)
         Card(
           color: Theme.of(context).colorScheme.primaryContainer,
           child: Padding(
@@ -465,9 +489,9 @@ class _BookingScreenState extends State<BookingScreen> {
                 Expanded(
                   child: Text(
                     'Send '
-                    '${money(serviceAmount)} '
+                    '${money(_selectedTotal)} '
                     'to ${barber.name.split(' ').first} for '
-                    '${_service!.name}.',
+                    '$serviceNames.',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),

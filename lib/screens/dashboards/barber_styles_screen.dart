@@ -110,6 +110,17 @@ class _BarberStylesScreenState extends State<BarberStylesScreen> {
     }
   }
 
+  Future<void> _setActive(Map<String, dynamic> style, bool active) async {
+    try {
+      await context
+          .read<ShopService>()
+          .updateBarberStyle(style['id'] as int, isActive: active);
+      _load();
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
   Future<void> _delete(Map<String, dynamic> style) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -166,29 +177,42 @@ class _BarberStylesScreenState extends State<BarberStylesScreen> {
               ),
             ..._styles.map((s) => Card(
                   margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: scheme.primaryContainer,
-                      child: Icon(Icons.content_cut_rounded,
-                          color: scheme.onPrimaryContainer, size: 20),
-                    ),
-                    title: Text(s['name'] as String),
-                    subtitle: Text(
-                        '${money(num.tryParse('${s['price']}'))} · ${s['duration_minutes']} min'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 20),
-                          onPressed: () => _addOrEdit(s),
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: scheme.primaryContainer,
+                          child: Icon(Icons.content_cut_rounded,
+                              color: scheme.onPrimaryContainer, size: 20),
                         ),
-                        IconButton(
-                          icon: Icon(Icons.delete_outline,
-                              size: 20, color: scheme.error),
-                          onPressed: () => _delete(s),
+                        title: Text(s['name'] as String),
+                        subtitle: Text(
+                            '${money(num.tryParse('${s['price']}'))} · ${s['duration_minutes']} min'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 20),
+                              onPressed: () => _addOrEdit(s),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.delete_outline,
+                                  size: 20, color: scheme.error),
+                              onPressed: () => _delete(s),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                      SwitchListTile(
+                        dense: true,
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 20),
+                        title: const Text('Available for booking',
+                            style: TextStyle(fontSize: 13.5)),
+                        value: s['is_active'] != false,
+                        onChanged: (v) => _setActive(s, v),
+                      ),
+                    ],
                   ),
                 )),
           ],

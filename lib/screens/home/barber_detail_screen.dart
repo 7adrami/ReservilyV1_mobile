@@ -110,7 +110,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
         children: [
           Row(
             children: [
-              AppAvatar(b.photo ?? b.avatar, name: b.name, size: 72),
+              AppAvatar(b.avatar, name: b.name, size: 72),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(

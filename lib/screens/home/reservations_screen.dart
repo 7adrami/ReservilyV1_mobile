@@ -155,9 +155,9 @@ class _BookingCard extends StatelessWidget {
               style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 6),
-            Text('${r.barberName} · ${r.serviceName}',
+            Text('${r.barberName} · ${r.serviceNames}',
                 style: const TextStyle(fontSize: 14)),
-            Text('${money(double.tryParse(r.servicePrice))} · ${r.city}',
+            Text('${money(double.tryParse(r.totalPrice))} · ${r.city}',
                 style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
             if (r.isActive && r.position != null) ...[
               const SizedBox(height: 10),

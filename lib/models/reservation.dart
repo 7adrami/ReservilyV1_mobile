@@ -6,6 +6,7 @@ class Reservation {
     this.barber,
     this.customer,
     this.service,
+    this.services = const [],
     required this.date,
     required this.startTime,
     this.endTime,
@@ -22,6 +23,7 @@ class Reservation {
   final Map<String, dynamic>? barber;
   final Map<String, dynamic>? customer;
   final Map<String, dynamic>? service;
+  final List<Map<String, dynamic>> services;
   final DateTime date;
   final String startTime;
   final String? endTime;
@@ -46,6 +48,24 @@ class Reservation {
   String get serviceName => service?['name'] as String? ?? '—';
   String get servicePrice => service?['price']?.toString() ?? '—';
   String get city => shop?['city'] as String? ?? '';
+
+  /// Every service in this booking (falls back to the primary one).
+  List<Map<String, dynamic>> get servicesList =>
+      services.isNotEmpty ? services : (service != null ? [service!] : []);
+
+  String get serviceNames => servicesList
+      .map((s) => s['name'] as String? ?? '')
+      .where((n) => n.isNotEmpty)
+      .join(', ');
+
+  /// Total price across all booked services (falls back to the primary).
+  String get totalPrice {
+    final sum = servicesList.fold<double>(
+      0,
+      (acc, s) => acc + (double.tryParse('${s['price']}') ?? 0),
+    );
+    return sum > 0 ? sum.toString() : servicePrice;
+  }
 
   bool get isPending => status == statusPending;
   bool get isConfirmed => status == statusConfirmed;
@@ -75,6 +95,11 @@ class Reservation {
       barber: json['barber'] as Map<String, dynamic>?,
       customer: json['customer'] as Map<String, dynamic>?,
       service: json['service'] as Map<String, dynamic>?,
+      services: (json['services'] as List<dynamic>? ?? [])
+          .map((e) => (e as Map<String, dynamic>).map(
+                (k, v) => MapEntry(k, v),
+              ))
+          .toList(),
       date: DateTime.parse(json['date'] as String),
       startTime: json['start_time'] as String? ?? '',
       endTime: json['end_time'] as String?,

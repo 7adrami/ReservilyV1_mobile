@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/shop_service.dart';
@@ -13,7 +12,6 @@ class BarberProfileScreen extends StatefulWidget {
 }
 
 class _BarberProfileScreenState extends State<BarberProfileScreen> {
-  String? _photo;
   final _specialty = TextEditingController();
   final _bio = TextEditingController();
   bool _loading = true;
@@ -38,7 +36,6 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
     try {
       final data = await context.read<ShopService>().myBio();
       setState(() {
-        _photo = data['photo'] as String?;
         _specialty.text = (data['specialty'] as String? ?? '');
         _bio.text = (data['bio'] as String? ?? '');
         _error = null;
@@ -66,33 +63,8 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
     }
   }
 
-  Future<void> _pickPhoto() async {
-    final messenger = ScaffoldMessenger.of(context);
-    final scheme = Theme.of(context).colorScheme;
-    final service = context.read<ShopService>();
-    final file = await ImagePicker()
-        .pickImage(source: ImageSource.gallery, maxWidth: 1200, maxHeight: 1200);
-    if (file == null) return;
-    final bytes = await file.readAsBytes();
-    try {
-      setState(() => _saving = true);
-      await service.updateMyBio({}, photoBytes: bytes, photoFilename: file.name);
-      await _load();
-      messenger.showSnackBar(
-          const SnackBar(content: Text('Profile photo updated.')));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(
-        content: Text(friendlyError(e)),
-        backgroundColor: scheme.error,
-      ));
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Barber profile')),
       body: RefreshIndicator(
@@ -110,29 +82,6 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
                 padding: EdgeInsets.symmetric(vertical: 40),
                 child: Center(child: CircularProgressIndicator()),
               ),
-            Center(
-              child: Stack(
-                alignment: Alignment.bottomRight,
-                children: [
-                  ClipOval(
-                    child: AppPhoto(_photo,
-                        borderRadius: 0, height: 120, fit: BoxFit.cover),
-                  ),
-                  InkWell(
-                    onTap: _pickPhoto,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: scheme.primary,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.photo_camera_rounded,
-                          color: scheme.onPrimary, size: 18),
-                    ),
-                  ),
-                ],
-              ),
-            ),
             const SizedBox(height: 20),
             const Text('Specialty',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),

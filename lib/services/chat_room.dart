@@ -136,6 +136,11 @@ class ChatRoomController extends ChangeNotifier {
   void _deriveAllKeys(List<String> pubs, String otherUsername) {
     if (_deriving) return;
     _deriving = true;
+    final seenKeyPubs = <String>{};
+    pubs = [
+      for (final p in pubs)
+        if (seenKeyPubs.add(p)) p,
+    ];
     _pubCount = pubs.length;
     final salts = ChatCrypto.candidateSalts(myUsername, otherUsername);
     final activePriv = identity.identity?['priv'] as Map<String, dynamic>?;

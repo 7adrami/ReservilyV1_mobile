@@ -19,7 +19,7 @@ class ReservationService {
   Future<Reservation> create({
     required String shopSlug,
     required int barberId,
-    required int serviceId,
+    required List<int> serviceIds,
     required DateTime date,
     required String startTime,
     required List<int> paymentProofBytes,
@@ -31,7 +31,7 @@ class ReservationService {
       fields: {
         'shop': shopSlug,
         'barber': '$barberId',
-        'service': '$serviceId',
+        'services': serviceIds.join(','),
         'date': '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
         'start_time': startTime,
         if (notes != null && notes.isNotEmpty) 'notes': notes,
@@ -61,7 +61,7 @@ class ReservationService {
     required int barberId,
     DateTime? date,
     String? shopSlug,
-    int? serviceId,
+    List<int>? serviceIds,
   }) async {
     final data = await api.request(
       '/api/barbers/availability/',
@@ -69,7 +69,8 @@ class ReservationService {
         'barber': '$barberId',
         if (date != null) 'date': '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
         if (shopSlug != null) 'shop': shopSlug,
-        if (serviceId != null) 'service': '$serviceId',
+        if (serviceIds != null && serviceIds.isNotEmpty)
+          'services': serviceIds.join(','),
       },
     ) as Map<String, dynamic>;
     return Availability.fromJson(data);

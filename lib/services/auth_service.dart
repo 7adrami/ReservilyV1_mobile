@@ -207,10 +207,16 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> uploadAvatarBytes(List<int> bytes, String filename) async {
-    final data = await api.upload(
+    final form = FormData();
+    form.files.add(MapEntry(
+      'avatar',
+      MultipartFile.fromBytes(bytes, filename: filename),
+    ));
+    final data = await api.request(
       '/api/auth/me/',
-      file: MultipartFile.fromBytes(bytes, filename: filename),
-      fileField: 'avatar',
+      method: 'PATCH',
+      form: true,
+      body: form,
     ) as Map<String, dynamic>;
     final user = User.fromJson(data);
     session.setUser(user);

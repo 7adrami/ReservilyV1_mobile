@@ -83,7 +83,6 @@ class BarberItem {
     required this.username,
     this.phone,
     this.avatar,
-    this.photo,
     this.bio,
     this.specialty,
     this.averageRating,
@@ -100,7 +99,6 @@ class BarberItem {
   final String username;
   final String? phone;
   final String? avatar;
-  final String? photo;
   final String? bio;
   final String? specialty;
   final double? averageRating;
@@ -120,7 +118,6 @@ class BarberItem {
       username: json['username'] as String,
       phone: json['phone'] as String?,
       avatar: json['avatar'] as String?,
-      photo: json['photo'] as String?,
       bio: json['bio'] as String?,
       specialty: json['specialty'] as String?,
       averageRating: (json['average_rating'] as num?)?.toDouble(),

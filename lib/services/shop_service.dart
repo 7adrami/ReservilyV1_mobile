@@ -145,7 +145,8 @@ class ShopService {
     return data['id'] as int;
   }
 
-  Future<void> updateBarberStyle(int pk, {String? name, String? price, int? durationMinutes}) async {
+  Future<void> updateBarberStyle(int pk,
+      {String? name, String? price, int? durationMinutes, bool? isActive}) async {
     await api.request(
       '/api/barber/styles/$pk/',
       method: 'PUT',
@@ -153,6 +154,7 @@ class ShopService {
         if (name != null) 'name': name,
         if (price != null) 'price': price,
         if (durationMinutes != null) 'duration_minutes': durationMinutes,
+        if (isActive != null) 'is_active': isActive,
       },
     );
   }
@@ -197,25 +199,7 @@ class ShopService {
     return (await api.request('/api/auth/me/bio/')) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> updateMyBio(
-    Map<String, dynamic> fields, {
-    List<int>? photoBytes,
-    String? photoFilename,
-  }) async {
-    if (photoBytes != null) {
-      final form = FormData();
-      fields.forEach((k, v) => form.fields.add(MapEntry(k, v.toString())));
-      form.files.add(MapEntry(
-        'photo',
-        MultipartFile.fromBytes(photoBytes, filename: photoFilename ?? 'photo.jpg'),
-      ));
-      return (await api.request(
-        '/api/auth/me/bio/',
-        method: 'PUT',
-        form: true,
-        body: form,
-      )) as Map<String, dynamic>;
-    }
+  Future<Map<String, dynamic>> updateMyBio(Map<String, dynamic> fields) async {
     return (await api.request(
       '/api/auth/me/bio/',
       method: 'PUT',

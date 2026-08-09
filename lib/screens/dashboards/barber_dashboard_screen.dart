@@ -18,6 +18,8 @@ class BarberDashboardScreen extends StatefulWidget {
 class _BarberDashboardScreenState extends State<BarberDashboardScreen> {
   List<Reservation> _today = [];
   List<Reservation> _upcoming = [];
+  List<Reservation> _past = [];
+  List<Reservation> _cancelled = [];
   String _todayLabel = '';
   bool _loading = true;
   String? _error;
@@ -40,6 +42,12 @@ class _BarberDashboardScreenState extends State<BarberDashboardScreen> {
         _today = all.where((r) => r.date.toIso8601String().substring(0, 10) == todayStr).toList()
           ..sort((a, b) => a.startTime.compareTo(b.startTime));
         _upcoming = all.where((r) => r.date.toIso8601String().substring(0, 10) != todayStr).toList();
+        _past = (data['past'] as List<dynamic>? ?? [])
+            .map((e) => Reservation.fromJson(e as Map<String, dynamic>))
+            .toList();
+        _cancelled = (data['cancelled'] as List<dynamic>? ?? [])
+            .map((e) => Reservation.fromJson(e as Map<String, dynamic>))
+            .toList();
         _todayLabel = todayStr;
         _error = null;
       });
@@ -126,11 +134,31 @@ class _BarberDashboardScreenState extends State<BarberDashboardScreen> {
               ),
             ..._upcoming.map((r) => _ReservationTile(r: r)),
             const SizedBox(height: 16),
+            const Text('Past',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            if (_past.isEmpty && !_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: Text('No past reservations.')),
+              ),
+            ..._past.map((r) => _ReservationTile(r: r)),
+            const SizedBox(height: 16),
+            const Text('Cancelled',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            if (_cancelled.isEmpty && !_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: Text('No cancelled reservations.')),
+              ),
+            ..._cancelled.map((r) => _ReservationTile(r: r)),
+            const SizedBox(height: 16),
             Card(
               child: ListTile(
                 leading: const Icon(Icons.badge_outlined),
                 title: const Text('Barber profile'),
-                subtitle: const Text('Specialty, about me and photo'),
+                subtitle: const Text('Specialty and about me'),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => context.push('/barber/profile'),
               ),
@@ -242,7 +270,7 @@ class _ReservationTile extends StatelessWidget {
               const SizedBox(height: 8),
               Text(r.customerName != '—' ? r.customerName : r.barberName,
                   style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-              Text('${r.serviceName} · ${money(num.tryParse(r.servicePrice))}',
+              Text('${r.serviceNames} · ${money(num.tryParse(r.totalPrice))}',
                   style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
               if (r.notes != null && r.notes!.isNotEmpty) ...[
                 const SizedBox(height: 4),
@@ -332,7 +360,7 @@ class _ReservationTile extends StatelessWidget {
               _DetailRow(
                   icon: Icons.content_cut_rounded,
                   label: 'Service',
-                  value: '${r.serviceName} · ${money(num.tryParse(r.servicePrice))}'),
+                  value: '${r.serviceNames} · ${money(num.tryParse(r.totalPrice))}'),
               _DetailRow(
                   icon: Icons.event_outlined,
                   label: 'Date',

@@ -329,61 +329,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           bottom: MediaQuery.of(context).viewInsets.bottom + 24,
         ),
         child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Change password',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 6),
-              Text('A code is sent to ${user.email ?? 'your email'}',
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
-              const SizedBox(height: 14),
-              OtpField(controller: code),
-              const SizedBox(height: 14),
-              PasswordField('New password', controller: p1),
-              const SizedBox(height: 10),
-              PasswordField('Confirm new password', controller: p2),
-              const SizedBox(height: 18),
-              ElevatedButton(
-                onPressed: () async {
-                  final auth = context.read<AuthService>();
-                  try {
-                    if (p1.text != p2.text) {
-                      showError(context, 'The two passwords do not match.');
-                      return;
-                    }
-                    await auth.passwordChangeComplete(
-                      code: code.text.trim(),
-                      password1: p1.text,
-                      password2: p2.text,
-                    );
-                    if (context.mounted) {
-                      Navigator.pop(context);
-                      showMessage(context, 'Password updated.');
-                    }
-                  } catch (e) {
-                    if (context.mounted) showError(context, e);
-                  }
-                },
-                child: const Text('Update password'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  try {
-                    await context.read<AuthService>().passwordChangeSend();
-                    if (context.mounted) {
-                      showMessage(context, 'Verification code sent to your email.');
-                    }
-                  } catch (e) {
-                    if (context.mounted) showError(context, e);
-                  }
-                },
-                child: const Text('Send verification code'),
-              ),
-            ],
+          child: _PasswordChangeSheet(
+            codeController: code,
+            password1Controller: p1,
+            password2Controller: p2,
+            email: user.email,
+            auth: context.read<AuthService>(),
           ),
         ),
       ),
@@ -404,51 +355,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           bottom: MediaQuery.of(context).viewInsets.bottom + 24,
         ),
         child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Change email',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 14),
-              AppField('New email', controller: email,
-                  keyboardType: TextInputType.emailAddress),
-              const SizedBox(height: 14),
-              OtpField(controller: code),
-              const SizedBox(height: 18),
-              ElevatedButton(
-                onPressed: () async {
-                  final auth = context.read<AuthService>();
-                  try {
-                    await auth.emailChangeComplete(
-                        email.text.trim(), code.text.trim());
-                    if (context.mounted) {
-                      Navigator.pop(context);
-                      showMessage(context, 'Email updated.');
-                    }
-                  } catch (e) {
-                    if (context.mounted) showError(context, e);
-                  }
-                },
-                child: const Text('Confirm new email'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  try {
-                    await context
-                        .read<AuthService>()
-                        .emailChangeSend(email.text.trim());
-                    if (context.mounted) {
-                      showMessage(
-                          context, 'Verification code sent to the new email.');
-                    }
-                  } catch (e) {
-                    if (context.mounted) showError(context, e);
-                  }
-                },
-                child: const Text('Send verification code'),
-              ),
-            ],
+          child: _EmailChangeSheet(
+            emailController: email,
+            codeController: code,
+            auth: context.read<AuthService>(),
           ),
         ),
       ),
@@ -498,6 +408,288 @@ class _ThemePicker extends StatelessWidget {
       ],
       selected: {controller.mode},
       onSelectionChanged: (set) => controller.setMode(set.first),
+    );
+  }
+}
+
+/// Email change flow mirroring the Django web version: first send the code to
+/// the new address, then enter it to confirm (with a dev-mode code display and
+/// a resend option, exactly like the web verification page).
+class _EmailChangeSheet extends StatefulWidget {
+  const _EmailChangeSheet({
+    required this.emailController,
+    required this.codeController,
+    required this.auth,
+  });
+
+  final TextEditingController emailController;
+  final TextEditingController codeController;
+  final AuthService auth;
+
+  @override
+  State<_EmailChangeSheet> createState() => _EmailChangeSheetState();
+}
+
+class _EmailChangeSheetState extends State<_EmailChangeSheet> {
+  final _formKey = GlobalKey<FormState>();
+  int _step = 0;
+  bool _busy = false;
+  String? _debugCode;
+
+  Future<void> _send() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() => _busy = true);
+    try {
+      final debugCode =
+          await widget.auth.emailChangeSend(widget.emailController.text.trim());
+      if (mounted) {
+        setState(() {
+          _step = 1;
+          _debugCode = debugCode;
+        });
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _complete() async {
+    setState(() => _busy = true);
+    try {
+      await widget.auth.emailChangeComplete(
+        widget.emailController.text.trim(),
+        widget.codeController.text.trim(),
+      );
+      if (mounted) {
+        Navigator.pop(context);
+        showMessage(context, 'Email updated.');
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Form(
+      key: _formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Change email',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 14),
+          if (_step == 0) ...[
+            AppField(
+              'New email',
+              controller: widget.emailController,
+              keyboardType: TextInputType.emailAddress,
+              validator: (v) {
+                final value = (v ?? '').trim();
+                if (value.isEmpty) return 'Enter the new email address.';
+                if (!value.contains('@')) return 'Enter a valid email address.';
+                return null;
+              },
+            ),
+            const SizedBox(height: 18),
+            ElevatedButton(
+              onPressed: _busy ? null : _send,
+              child: _busy
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('Send verification code'),
+            ),
+          ] else ...[
+            Text(
+              'Enter the 6-digit code sent to '
+              '${widget.emailController.text.trim()}',
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 14),
+            OtpField(controller: widget.codeController),
+            if (_debugCode != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Development code: $_debugCode',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: scheme.primary),
+              ),
+            ],
+            const SizedBox(height: 18),
+            ElevatedButton(
+              onPressed: _busy ? null : _complete,
+              child: _busy
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('Confirm new email'),
+            ),
+            TextButton(
+              onPressed: _busy ? null : _send,
+              child: const Text('Resend code'),
+            ),
+            TextButton(
+              onPressed: () {
+                widget.codeController.clear();
+                setState(() {
+                  _step = 0;
+                  _debugCode = null;
+                });
+              },
+              child: const Text('Use a different email'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Password change flow mirroring the Django web version: first send the code,
+/// then enter it along with the new password (with a dev-mode code display and
+/// a resend option, exactly like the web verification page).
+class _PasswordChangeSheet extends StatefulWidget {
+  const _PasswordChangeSheet({
+    required this.codeController,
+    required this.password1Controller,
+    required this.password2Controller,
+    required this.email,
+    required this.auth,
+  });
+
+  final TextEditingController codeController;
+  final TextEditingController password1Controller;
+  final TextEditingController password2Controller;
+  final String? email;
+  final AuthService auth;
+
+  @override
+  State<_PasswordChangeSheet> createState() => _PasswordChangeSheetState();
+}
+
+class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
+  int _step = 0;
+  bool _busy = false;
+  String? _debugCode;
+
+  Future<void> _send() async {
+    setState(() => _busy = true);
+    try {
+      final debugCode = await widget.auth.passwordChangeSend();
+      if (mounted) {
+        setState(() {
+          _step = 1;
+          _debugCode = debugCode;
+        });
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _complete() async {
+    if (widget.password1Controller.text != widget.password2Controller.text) {
+      showError(context, 'The two passwords do not match.');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.auth.passwordChangeComplete(
+        code: widget.codeController.text.trim(),
+        password1: widget.password1Controller.text,
+        password2: widget.password2Controller.text,
+      );
+      if (mounted) {
+        Navigator.pop(context);
+        showMessage(context, 'Password updated.');
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('Change password',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 6),
+        Text('A code is sent to ${widget.email ?? 'your email'}',
+            style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
+        const SizedBox(height: 14),
+        if (_step == 0)
+          ElevatedButton(
+            onPressed: _busy ? null : _send,
+            child: _busy
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
+                  )
+                : const Text('Send verification code'),
+          )
+        else ...[
+          OtpField(controller: widget.codeController),
+          if (_debugCode != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Development code: $_debugCode',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.primary),
+            ),
+          ],
+          const SizedBox(height: 14),
+          PasswordField('New password',
+              controller: widget.password1Controller),
+          const SizedBox(height: 10),
+          PasswordField('Confirm new password',
+              controller: widget.password2Controller),
+          const SizedBox(height: 18),
+          ElevatedButton(
+            onPressed: _busy ? null : _complete,
+            child: _busy
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
+                  )
+                : const Text('Update password'),
+          ),
+          TextButton(
+            onPressed: _busy ? null : _send,
+            child: const Text('Resend code'),
+          ),
+        ],
+      ],
     );
   }
 }

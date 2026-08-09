@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/api_exception.dart';
 import '../core/constants.dart';
 import '../core/theme.dart';
+import '../models/shop.dart';
 
 /// Resolves API-relative media paths (e.g. `/media/shops/x.png`) against the
 /// configured backend so CachedNetworkImage can load them on any platform.
@@ -114,11 +115,13 @@ class _Initials extends StatelessWidget {
 
 /// Photo banner (square-ish rounded) with graceful fallback.
 class AppPhoto extends StatelessWidget {
-  const AppPhoto(this.url, {super.key, this.borderRadius = 20, this.height});
+  const AppPhoto(this.url,
+      {super.key, this.borderRadius = 20, this.height, this.fit = BoxFit.cover});
 
   final String? url;
   final double borderRadius;
   final double? height;
+  final BoxFit fit;
 
   @override
   Widget build(BuildContext context) {
@@ -135,7 +138,7 @@ class AppPhoto extends StatelessWidget {
     } else {
       child = CachedNetworkImage(
         imageUrl: resolved,
-        fit: BoxFit.cover,
+        fit: fit,
         placeholder: (_, __) => Container(
           color: AppTheme.brandLight.withOpacity(0.5),
           alignment: Alignment.center,
@@ -361,5 +364,113 @@ class StarRating extends StatelessWidget {
         ],
       ],
     );
+  }
+}
+
+/// Tappable 1-5 star input (single rating, like Django's radio stars).
+class StarInput extends StatelessWidget {
+  const StarInput({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.size = 34,
+  });
+
+  final int value;
+  final ValueChanged<int> onChanged;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 1; i <= 5; i++)
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => onChanged(i),
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Icon(
+                i <= value
+                    ? Icons.star_rounded
+                    : Icons.star_outline_rounded,
+                size: size,
+                color: AppTheme.gold,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// A written review/comment, showing "Anonymous" when the author chose to
+/// stay hidden (same behaviour as the Django web version).
+class ReviewTile extends StatelessWidget {
+  const ReviewTile({super.key, required this.review});
+
+  final ReviewItem review;
+
+  @override
+  Widget build(BuildContext context) {
+    final when = review.createdAt;
+    final name = review.waitingListVisible ? review.userName : null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppAvatar(
+            review.waitingListVisible ? review.avatar : null,
+            name: name ?? '',
+            size: 40,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name ?? 'Anonymous',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          fontStyle: name == null
+                              ? FontStyle.italic
+                              : FontStyle.normal,
+                        ),
+                      ),
+                    ),
+                    if (when != null)
+                      Text(
+                        _fmtDate(when),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(review.body ?? '',
+                    style: const TextStyle(fontSize: 13.5, height: 1.4)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _fmtDate(DateTime d) {
+    final now = DateTime.now();
+    final diff = now.difference(d);
+    if (diff.inDays < 1) return 'today';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${d.day}/${d.month}/${d.year}';
   }
 }

@@ -306,6 +306,69 @@ class ChatCrypto {
     return jsonDecode(utf8.decode(plain)) as Map<String, dynamic>;
   }
 
+  // ------------------------------------------- background-isolate helpers
+  //
+  // These are pure (no platform channels) so they can run inside `compute()`
+  // and keep the expensive PBKDF2/ECDH/AES work off the UI thread.
+
+  /// Derives the account KEK and unwraps the vault identity in an isolate.
+  static Map<String, dynamic> unwrapIdentityInIsolate(
+      Map<String, dynamic> args) {
+    final salt = args['salt'] as String;
+    final iv = args['iv'] as String;
+    final wrapped = args['wrapped'] as String;
+    final password = args['password'] as String;
+    final kek = pbkdf2Sha256(password: password, salt: b64ToBytes(salt));
+    return unwrapIdentity(salt, iv, wrapped, kek);
+  }
+
+  /// Derives the account KEK and wraps the identity for backup in an isolate.
+  static Map<String, String> wrapIdentityInIsolate(Map<String, dynamic> args) {
+    final salt = args['salt'] as String;
+    final password = args['password'] as String;
+    final kek = pbkdf2Sha256(password: password, salt: b64ToBytes(salt));
+    return wrapIdentity(args['identity'] as Map<String, dynamic>, salt, kek);
+  }
+
+  /// Derives every conversation-key candidate (priv x pub x salt) in an
+  /// isolate and returns base64 keys plus the index of the active key.
+  static Map<String, dynamic> deriveConversationKeysInIsolate(
+      Map<String, dynamic> args) {
+    final candidates =
+        (args['candidates'] as List).cast<Map<String, dynamic>>();
+    final pubs = (args['pubs'] as List).cast<String>();
+    final salts = (args['salts'] as List).cast<String>();
+    final flat = <String>[];
+    for (final priv in candidates) {
+      for (final pub in pubs) {
+        for (final salt in salts) {
+          flat.add(bytesToB64(deriveConversationKey(priv, pub, salt)));
+        }
+      }
+    }
+    final activeLatestIdx = (pubs.length - 1) * salts.length;
+    return {'keys': flat, 'activeIndex': activeLatestIdx};
+  }
+
+  /// Decrypts many message payloads in an isolate, trying every key per item.
+  /// A null entry means the message could not be decrypted with any key.
+  static List<Map<String, dynamic>?> decryptPayloadsInIsolate(
+      Map<String, dynamic> args) {
+    final keysB64 = (args['keys'] as List).cast<String>();
+    final items = (args['items'] as List).cast<Map<String, dynamic>>();
+    final keys = keysB64.map(b64ToBytes).toList();
+    return items.map((item) {
+      final ct = item['ciphertext'] as String;
+      final nonce = item['nonce'] as String;
+      for (final key in keys) {
+        try {
+          return decryptPayload(key, ct, nonce);
+        } catch (_) {}
+      }
+      return null;
+    }).toList();
+  }
+
   // --------------------------------------------------------------- media
 
   /// Encrypts raw file bytes with a fresh random key; returns key/iv as base64

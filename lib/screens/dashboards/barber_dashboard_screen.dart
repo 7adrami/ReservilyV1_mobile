@@ -128,6 +128,15 @@ class _BarberDashboardScreenState extends State<BarberDashboardScreen> {
             const SizedBox(height: 16),
             Card(
               child: ListTile(
+                leading: const Icon(Icons.badge_outlined),
+                title: const Text('Barber profile'),
+                subtitle: const Text('Specialty, about me and photo'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/barber/profile'),
+              ),
+            ),
+            Card(
+              child: ListTile(
                 leading: const Icon(Icons.tune_rounded),
                 title: const Text('Manage my barbershop tools'),
                 subtitle: const Text('Hours, services, requests, wallets'),
@@ -202,71 +211,147 @@ class _ReservationTile extends StatelessWidget {
         onConfirm != null || onComplete != null || onCancel != null;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: scheme.primaryContainer.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    isToday ? r.startTime : '${_shortDate(r.date)} · ${r.startTime}',
-                    style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: scheme.onPrimaryContainer),
-                  ),
-                ),
-                const Spacer(),
-                _StatusChip(status: r.status),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(r.customerName != '—' ? r.customerName : r.barberName,
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-            Text('${r.serviceName} · ${money(num.tryParse(r.servicePrice))}',
-                style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
-            if (r.notes != null && r.notes!.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text('“${r.notes}”',
-                  style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant)),
-            ],
-            if (onConfirm != null || onComplete != null || onCancel != null) ...[
-              const SizedBox(height: 8),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _showDetails(context),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Row(
                 children: [
-                  if (onConfirm != null)
-                    FilledButton.tonalIcon(
-                      onPressed: onConfirm,
-                      icon: const Icon(Icons.check, size: 18),
-                      label: const Text('Confirm'),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: scheme.primaryContainer.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                  if (onComplete != null) ...[
-                    const SizedBox(width: 8),
-                    FilledButton.tonalIcon(
-                      onPressed: onComplete,
-                      icon: const Icon(Icons.done_all, size: 18),
-                      label: const Text('Complete'),
+                    child: Text(
+                      isToday ? r.startTime : '${_shortDate(r.date)} · ${r.startTime}',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: scheme.onPrimaryContainer),
                     ),
-                  ],
+                  ),
                   const Spacer(),
-                  if (onCancel != null)
-                    IconButton(
-                      onPressed: onCancel,
-                      icon: Icon(Icons.close_rounded,
-                          color: scheme.error, size: 20),
-                      tooltip: 'Cancel',
-                    ),
+                  _StatusChip(status: r.status),
                 ],
               ),
+              const SizedBox(height: 8),
+              Text(r.customerName != '—' ? r.customerName : r.barberName,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+              Text('${r.serviceName} · ${money(num.tryParse(r.servicePrice))}',
+                  style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
+              if (r.notes != null && r.notes!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text('“${r.notes}”',
+                    style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant)),
+              ],
+              if (onConfirm != null || onComplete != null || onCancel != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    if (onConfirm != null)
+                      FilledButton.tonalIcon(
+                        onPressed: onConfirm,
+                        icon: const Icon(Icons.check, size: 18),
+                        label: const Text('Confirm'),
+                      ),
+                    if (onComplete != null) ...[
+                      const SizedBox(width: 8),
+                      FilledButton.tonalIcon(
+                        onPressed: onComplete,
+                        icon: const Icon(Icons.done_all, size: 18),
+                        label: const Text('Complete'),
+                      ),
+                    ],
+                    const Spacer(),
+                    if (onCancel != null)
+                      IconButton(
+                        onPressed: onCancel,
+                        icon: Icon(Icons.close_rounded,
+                            color: scheme.error, size: 20),
+                        tooltip: 'Cancel',
+                      ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showDetails(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text('Reservation details',
+                        style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+                  ),
+                  _StatusChip(status: r.status),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (r.paymentProof != null && r.paymentProof!.isNotEmpty) ...[
+                AppPhoto(r.paymentProof,
+                    borderRadius: 12,
+                    height: 260,
+                    fit: BoxFit.contain),
+                const SizedBox(height: 8),
+                const Center(
+                  child: Text('Payment proof',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600)),
+                ),
+                const SizedBox(height: 16),
+              ],
+              _DetailRow(
+                  icon: Icons.person_outline,
+                  label: 'Customer',
+                  value: r.customerName),
+              if (r.customerPhone != '—')
+                _DetailRow(
+                    icon: Icons.phone_outlined,
+                    label: 'Phone',
+                    value: r.customerPhone),
+              _DetailRow(
+                  icon: Icons.content_cut_rounded,
+                  label: 'Service',
+                  value: '${r.serviceName} · ${money(num.tryParse(r.servicePrice))}'),
+              _DetailRow(
+                  icon: Icons.event_outlined,
+                  label: 'Date',
+                  value: '${r.date.day}/${r.date.month}/${r.date.year}'),
+              _DetailRow(
+                  icon: Icons.schedule_outlined,
+                  label: 'Time',
+                  value: '${r.startTime}${r.endTime != null ? ' – ${r.endTime}' : ''}'),
+              _DetailRow(
+                  icon: Icons.info_outline_rounded,
+                  label: 'Status',
+                  value: r.statusLabel),
+              if (r.notes != null && r.notes!.isNotEmpty)
+                _DetailRow(
+                    icon: Icons.sticky_note_2_outlined,
+                    label: 'Notes',
+                    value: r.notes!),
+            ],
+          ),
         ),
       ),
     );
@@ -300,6 +385,38 @@ class _StatusChip extends StatelessWidget {
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
       child: Text(label,
           style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: fg)),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.icon, required this.label, required this.value});
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 74,
+            child: Text(label,
+                style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
     );
   }
 }

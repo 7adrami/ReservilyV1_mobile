@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/session.dart';
 import '../../models/chat.dart';
-import '../../services/chat_identity.dart';
 import '../../services/chat_service.dart';
 import '../../widgets/common.dart';
 
@@ -13,12 +11,6 @@ class ChatListScreen extends StatefulWidget {
 
   @override
   State<ChatListScreen> createState() => _ChatListScreenState();
-}
-
-class _VaultAnswer {
-  const _VaultAnswer(this.ok, [this.password]);
-  final bool ok;
-  final String? password;
 }
 
 class _ChatListScreenState extends State<ChatListScreen> {
@@ -36,12 +28,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> _load() async {
     try {
       final chat = context.read<ChatService>();
-      final conversations = await chat.conversations();
-      final broadcasts = await chat.broadcasts();
+      final results = await Future.wait([
+        chat.conversations(),
+        chat.broadcasts(),
+      ]);
       if (mounted) {
         setState(() {
-          _conversations = conversations;
-          _broadcasts = broadcasts;
+          _conversations = results[0] as List<ConversationSummary>;
+          _broadcasts = results[1] as List<BroadcastInfo>;
           _error = null;
         });
       }
@@ -52,89 +46,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
   }
 
-  Future<void> _openConversation(ConversationSummary c) async {
-    final identity = context.read<ChatIdentity>();
-    final session = context.read<Session>();
-    if (!identity.hasIdentity) {
-      final ok = await _ensureIdentity(identity, session);
-      if (!ok) return;
-    }
-    if (mounted) context.push('/chat/${c.id}');
+  void _openConversation(ConversationSummary c) {
+    context.push('/chat/${c.id}', extra: c.other);
   }
 
-  Future<void> _newChat() async {
-    final identity = context.read<ChatIdentity>();
-    final session = context.read<Session>();
-    final ok = await _ensureIdentity(identity, session);
-    if (!ok) return;
-    if (mounted) context.push('/chat/new');
-  }
-
-  Future<bool> _ensureIdentity(ChatIdentity identity, Session session) async {
-    try {
-      identity.setSessionPassword(session.sessionPassword);
-      await identity.ensureIdentity(
-        username: session.user?.username ?? '',
-        passwordPrompt: session.sessionPassword != null
-            ? (({required String message}) async {
-                return VaultPrompt(result: VaultPromptResult.unlocked, password: session.sessionPassword!);
-              })
-            : _vaultPrompt,
-      );
-      return true;
-    } catch (e) {
-      if (mounted) showError(context, e);
-      return false;
-    }
-  }
-
-  Future<VaultPrompt> _vaultPrompt({required String message}) async {
-    if (!mounted) return const VaultPrompt(result: VaultPromptResult.cancelled);
-    final password = TextEditingController();
-    final result = await showDialog<_VaultAnswer>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Restore encrypted chat keys'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(message),
-            const SizedBox(height: 14),
-            TextField(
-              controller: password,
-              obscureText: true,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Account password',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, const _VaultAnswer(false)),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(
-              context,
-              _VaultAnswer(true, password.text),
-            ),
-            child: const Text('Unlock chats'),
-          ),
-        ],
-      ),
-    );
-    if (result == null || !result.ok) {
-      return const VaultPrompt(result: VaultPromptResult.cancelled);
-    }
-    return VaultPrompt(
-      result: VaultPromptResult.unlocked,
-      password: result.password,
-    );
+  void _newChat() {
+    context.push('/chat/new');
   }
 
   @override

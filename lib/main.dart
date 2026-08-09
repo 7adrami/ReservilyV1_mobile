@@ -6,6 +6,7 @@ import 'core/api_client.dart';
 import 'core/session.dart';
 import 'core/theme.dart';
 import 'core/theme_controller.dart';
+import 'models/chat.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/password_reset_screen.dart';
 import 'screens/auth/signup_screen.dart';
@@ -16,6 +17,7 @@ import 'screens/chat/new_chat_screen.dart';
 import 'screens/dashboards/admin_broadcasts_screen.dart';
 import 'screens/dashboards/admin_owners_screen.dart';
 import 'screens/dashboards/barber_hours_screen.dart';
+import 'screens/dashboards/barber_profile_screen.dart';
 import 'screens/dashboards/barber_requests_screen.dart';
 import 'screens/dashboards/barber_styles_screen.dart';
 import 'screens/dashboards/barber_wallets_screen.dart';
@@ -23,6 +25,7 @@ import 'screens/dashboards/owner_requests_screen.dart';
 import 'screens/dashboards/owner_shop_screen.dart';
 import 'screens/dashboards/owner_team_screen.dart';
 import 'screens/home/shop_detail_screen.dart';
+import 'screens/home/barber_detail_screen.dart';
 import 'screens/home_shell.dart';
 import 'services/auth_service.dart';
 import 'services/chat_identity.dart';
@@ -186,6 +189,18 @@ GoRouter _buildRouter(BuildContext context) {
           key: state.pageKey,
           child: BookingScreen(
             slug: state.pathParameters['slug']!,
+            initialBarberId: int.tryParse(state.uri.queryParameters['barber'] ?? ''),
+          ),
+          transitionDuration: Duration.zero,
+          transitionsBuilder: (_, __, ___, child) => child,
+        ),
+      ),
+      GoRoute(
+        path: '/barbers/:pk',
+        pageBuilder: (context, state) => CustomTransitionPage(
+          key: state.pageKey,
+          child: BarberDetailScreen(
+            pk: int.parse(state.pathParameters['pk']!),
           ),
           transitionDuration: Duration.zero,
           transitionsBuilder: (_, __, ___, child) => child,
@@ -209,6 +224,7 @@ GoRouter _buildRouter(BuildContext context) {
           key: state.pageKey,
           child: ChatRoomScreen(
             conversationId: int.parse(state.pathParameters['id']!),
+            other: state.extra as ChatUserInfo?,
           ),
           transitionDuration: Duration.zero,
           transitionsBuilder: (_, __, ___, child) => child,
@@ -216,6 +232,9 @@ GoRouter _buildRouter(BuildContext context) {
       ),
       GoRoute(
           path: '/barber/hours', builder: (_, __) => const BarberHoursScreen()),
+      GoRoute(
+          path: '/barber/profile',
+          builder: (_, __) => const BarberProfileScreen()),
       GoRoute(
           path: '/barber/styles',
           builder: (_, __) => const BarberStylesScreen()),

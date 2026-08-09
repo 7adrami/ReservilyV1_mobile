@@ -38,6 +38,7 @@ class ChatRoomController extends ChangeNotifier {
   final List<Uint8List> _legacyKeys = [];
   int _pubCount = 0;
   List<Map<String, dynamic>> _identityBackups = [];
+  bool _deriving = false;
 
   final List<ChatMessage> messages = [];
   final Map<int, ({Uint8List bytes, String mime, String name})> _mediaCache = {};
@@ -123,10 +124,6 @@ class ChatRoomController extends ChangeNotifier {
         return;
       }
       _deriveAllKeys(pubs, other.username);
-      status = _key != null ? RoomStatus.unlocked : RoomStatus.noKey;
-      loading = false;
-      notifyListeners();
-      await _loadInitialMessages();
     } on Exception catch (e) {
       if (_conversationId != convId) return;
       status = RoomStatus.noKey;
@@ -137,8 +134,10 @@ class ChatRoomController extends ChangeNotifier {
   }
 
   void _deriveAllKeys(List<String> pubs, String otherUsername) {
+    if (_deriving) return;
+    _deriving = true;
+    _pubCount = pubs.length;
     final salts = ChatCrypto.candidateSalts(myUsername, otherUsername);
-    final flat = <Uint8List>[];
     final activePriv = identity.identity?['priv'] as Map<String, dynamic>?;
     // Recovery net: try every private key we have on device, active first.
     final candidates = <Map<String, dynamic>>[
@@ -152,24 +151,40 @@ class ChatRoomController extends ChangeNotifier {
         candidates.add(priv);
       }
     }
-    for (final priv in candidates) {
-      for (final pub in pubs) {
-        for (final salt in salts) {
-          flat.add(ChatCrypto.deriveConversationKey(priv, pub, salt));
+    // ECDH P-256 derivation is slow in pure Dart: run it off the UI isolate.
+    compute(ChatCrypto.deriveConversationKeysInIsolate, {
+      'candidates': candidates,
+      'pubs': pubs,
+      'salts': salts,
+    }).then((result) {
+      _deriving = false;
+      if (_conversationId == null) return;
+      final keysB64 = (result['keys'] as List).cast<String>();
+      final activeIdx = result['activeIndex'] as int;
+      _key =
+          keysB64.isNotEmpty ? ChatCrypto.b64ToBytes(keysB64[activeIdx]) : null;
+      _legacyKeys.clear();
+      if (keysB64.isNotEmpty) {
+        for (var i = 0; i < keysB64.length; i++) {
+          if (i != activeIdx) _legacyKeys.add(ChatCrypto.b64ToBytes(keysB64[i]));
         }
       }
-    }
-    // Primary key = the ACTIVE identity (new messages use it to encrypt) with
-    // the newest public key and newest salt. Everything else is legacy.
-    final activeLatestIdx = (pubs.length - 1) * salts.length;
-    _key = flat.isNotEmpty ? flat[activeLatestIdx] : null;
-    _legacyKeys.clear();
-    if (flat.isNotEmpty) {
-      for (var i = 0; i < flat.length; i++) {
-        if (i != activeLatestIdx) _legacyKeys.add(flat[i]);
+      status = _key != null ? RoomStatus.unlocked : RoomStatus.noKey;
+      loading = false;
+      notifyListeners();
+      if (messages.isEmpty) {
+        _loadInitialMessages();
+      } else {
+        _decryptVisible(retryFailed: true);
       }
-    }
-    _pubCount = pubs.length;
+    }).catchError((_) {
+      _deriving = false;
+      _pubCount = 0;
+      if (_conversationId == null) return;
+      status = RoomStatus.noKey;
+      loading = false;
+      notifyListeners();
+    });
   }
 
   /// Called periodically: if the other user rotated their key, re-derive so
@@ -183,9 +198,6 @@ class ChatRoomController extends ChangeNotifier {
       if (_conversationId != convId || pubs.isEmpty) return;
       if (pubs.length <= _pubCount) return;
       _deriveAllKeys(pubs, other.username);
-      status = _key != null ? RoomStatus.unlocked : RoomStatus.noKey;
-      _decryptVisible();
-      notifyListeners();
     } on Exception {
       // Retried next tick.
     }
@@ -324,10 +336,45 @@ class ChatRoomController extends ChangeNotifier {
 
   // ------------------------------------------------------------ decrypt
 
-  Future<void> _decryptVisible() async {
+  Future<void> _decryptVisible({bool retryFailed = false}) async {
+    final pending = <ChatMessage>[];
     for (final m in messages) {
-      m.decryptFailed = false;
-      await _decryptOne(m);
+      if (retryFailed) m.decryptFailed = false;
+      if (m.decrypted == null && !m.decryptFailed) pending.add(m);
+    }
+    if (pending.isNotEmpty && unlocked) {
+      if (pending.length >= 12) {
+        // Batch AES-GCM decrypt on a background isolate so long histories
+        // never stall the UI thread.
+        try {
+          final keysB64 =
+              _conversationKeys.map(ChatCrypto.bytesToB64).toList();
+          final items = [
+            for (final m in pending)
+              {'ciphertext': m.ciphertext, 'nonce': m.nonce},
+          ];
+          final results = await compute(ChatCrypto.decryptPayloadsInIsolate, {
+            'keys': keysB64,
+            'items': items,
+          });
+          for (var i = 0; i < pending.length; i++) {
+            final payload = results[i];
+            if (payload != null) {
+              pending[i].decrypted = ChatPayload.fromJson(payload);
+            } else {
+              pending[i].decryptFailed = true;
+            }
+          }
+        } on Exception {
+          for (final m in pending) {
+            await _decryptOne(m);
+          }
+        }
+      } else {
+        for (final m in pending) {
+          await _decryptOne(m);
+        }
+      }
     }
     notifyListeners();
   }

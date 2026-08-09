@@ -45,9 +45,9 @@ class ShopService {
     return BookingOptions.fromJson(data);
   }
 
-  Future<Map<String, dynamic>> barberDetail(int pk) async {
+  Future<BarberItem> barberDetail(int pk) async {
     final data = await api.request('/api/barbers/$pk/') as Map<String, dynamic>;
-    return data['barber'] as Map<String, dynamic>;
+    return BarberItem.fromJson(data['barber'] as Map<String, dynamic>);
   }
 
   Future<Map<String, dynamic>> barberSchedule(int pk, {DateTime? date, String? shopSlug}) async {
@@ -71,6 +71,22 @@ class ShopService {
   Future<void> reviewBarber(int pk, String body) async {
     await api.request(
       '/api/barbers/$pk/review/',
+      method: 'POST',
+      body: {'body': body},
+    );
+  }
+
+  Future<void> rateShop(String slug, int score) async {
+    await api.request(
+      '/api/shops/$slug/rate/',
+      method: 'POST',
+      body: {'score': score},
+    );
+  }
+
+  Future<void> reviewShop(String slug, String body) async {
+    await api.request(
+      '/api/shops/$slug/review/',
       method: 'POST',
       body: {'body': body},
     );
@@ -175,6 +191,36 @@ class ShopService {
       method: 'PUT',
       body: {'wallets': wallets},
     );
+  }
+
+  Future<Map<String, dynamic>> myBio() async {
+    return (await api.request('/api/auth/me/bio/')) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> updateMyBio(
+    Map<String, dynamic> fields, {
+    List<int>? photoBytes,
+    String? photoFilename,
+  }) async {
+    if (photoBytes != null) {
+      final form = FormData();
+      fields.forEach((k, v) => form.fields.add(MapEntry(k, v.toString())));
+      form.files.add(MapEntry(
+        'photo',
+        MultipartFile.fromBytes(photoBytes, filename: photoFilename ?? 'photo.jpg'),
+      ));
+      return (await api.request(
+        '/api/auth/me/bio/',
+        method: 'PUT',
+        form: true,
+        body: form,
+      )) as Map<String, dynamic>;
+    }
+    return (await api.request(
+      '/api/auth/me/bio/',
+      method: 'PUT',
+      body: fields,
+    )) as Map<String, dynamic>;
   }
 
   // ----------------------------------------------------------- owner dashboard

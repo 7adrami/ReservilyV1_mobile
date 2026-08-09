@@ -19,6 +19,7 @@ class Shop {
     this.distanceKm,
     this.barbers = const [],
     this.reviews = const [],
+    this.myRating,
   });
 
   final int id;
@@ -39,6 +40,9 @@ class Shop {
   final double? distanceKm;
   final List<BarberItem> barbers;
   final List<ReviewItem> reviews;
+
+  /// The signed-in user's own star rating for this shop (1-5), if any.
+  final int? myRating;
 
   String get ratingLabel =>
       averageRating == null ? 'New' : averageRating!.toStringAsFixed(1);
@@ -67,6 +71,7 @@ class Shop {
       reviews: (json['reviews'] as List<dynamic>? ?? [])
           .map((e) => ReviewItem.fromJson(e as Map<String, dynamic>))
           .toList(),
+      myRating: json['my_rating'] as int?,
     );
   }
 }
@@ -85,6 +90,9 @@ class BarberItem {
     this.ratingCount = 0,
     this.services = const [],
     this.isActive = true,
+    this.myRating,
+    this.reviews = const [],
+    this.shops = const [],
   });
 
   final int id;
@@ -99,6 +107,11 @@ class BarberItem {
   final int ratingCount;
   final List<ServiceItem> services;
   final bool isActive;
+
+  /// The signed-in user's own star rating for this barber (1-5), if any.
+  final int? myRating;
+  final List<ReviewItem> reviews;
+  final List<BarberShop> shops;
 
   factory BarberItem.fromJson(Map<String, dynamic> json) {
     return BarberItem(
@@ -116,6 +129,32 @@ class BarberItem {
           .map((e) => ServiceItem.fromJson(e as Map<String, dynamic>))
           .toList(),
       isActive: json['is_active'] != false,
+      myRating: json['my_rating'] as int?,
+      reviews: (json['reviews'] as List<dynamic>? ?? [])
+          .map((e) => ReviewItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      shops: (json['shops'] as List<dynamic>? ?? [])
+          .map((e) => BarberShop.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+/// A barbershop a barber works at (from the barber detail response).
+class BarberShop {
+  const BarberShop({required this.id, required this.slug, required this.name, this.city});
+
+  final int id;
+  final String slug;
+  final String name;
+  final String? city;
+
+  factory BarberShop.fromJson(Map<String, dynamic> json) {
+    return BarberShop(
+      id: json['id'] as int,
+      slug: json['slug'] as String,
+      name: json['name'] as String,
+      city: json['city'] as String?,
     );
   }
 }
@@ -159,6 +198,7 @@ class ReviewItem {
     this.avatar,
     this.body,
     this.createdAt,
+    this.waitingListVisible = true,
   });
 
   final int id;
@@ -167,6 +207,10 @@ class ReviewItem {
   final String? avatar;
   final String? body;
   final DateTime? createdAt;
+
+  /// Whether the author agreed to be shown on public lists; when false the
+  /// review is displayed as "Anonymous".
+  final bool waitingListVisible;
 
   factory ReviewItem.fromJson(Map<String, dynamic> json) {
     return ReviewItem(
@@ -178,6 +222,7 @@ class ReviewItem {
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)
           : null,
+      waitingListVisible: json['waiting_list_visible'] != false,
     );
   }
 }
@@ -236,17 +281,25 @@ class BookingService {
     required this.pk,
     required this.name,
     required this.durationMinutes,
+    this.price,
   });
 
   final int pk;
   final String name;
   final int durationMinutes;
+  final double? price;
 
   factory BookingService.fromJson(Map<String, dynamic> json) {
+    final rawPrice = json['price'];
     return BookingService(
       pk: json['pk'] as int,
       name: json['name'] as String,
       durationMinutes: json['duration_minutes'] as int? ?? 30,
+      price: rawPrice == null
+          ? null
+          : rawPrice is num
+              ? rawPrice.toDouble()
+              : double.tryParse(rawPrice.toString()),
     );
   }
 }

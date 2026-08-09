@@ -133,7 +133,8 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
                       textAlign: TextAlign.center),
                 )
               else
-                ...shop.barbers.map((b) => _BarberTile(barber: b)),
+                ...shop.barbers.map(
+                    (b) => _BarberTile(shopSlug: shop.slug, barber: b)),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
                 child: Column(
@@ -191,8 +192,9 @@ class _ShopDetailScreenState extends State<ShopDetailScreen> {
 }
 
 class _BarberTile extends StatelessWidget {
-  const _BarberTile({required this.barber});
+  const _BarberTile({required this.shopSlug, required this.barber});
 
+  final String shopSlug;
   final BarberItem barber;
 
   @override
@@ -200,54 +202,74 @@ class _BarberTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              AppAvatar(barber.avatar, name: barber.name, size: 52),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(barber.name,
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w700)),
-                    if (barber.specialty != null &&
-                        barber.specialty!.isNotEmpty)
-                      Text(
-                        barber.specialty!,
-                        style: TextStyle(
-                            fontSize: 13,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant),
-                      ),
-                    if (barber.services.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Wrap(
-                          spacing: 6,
-                          runSpacing: 4,
-                          children: [
-                            for (final s in barber.services)
-                              Chip(
-                                label: Text(
-                                  '${s.name} · ${money(s.price)}',
-                                  style: const TextStyle(fontSize: 11.5),
-                                ),
-                                visualDensity: VisualDensity.compact,
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 6),
-                              ),
-                          ],
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => context
+              .push('/shop/$shopSlug/book?barber=${barber.id}'),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                AppAvatar(barber.avatar, name: barber.name, size: 52),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(barber.name,
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      if (barber.specialty != null &&
+                          barber.specialty!.isNotEmpty)
+                        Text(
+                          barber.specialty!,
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant),
                         ),
+                      if (barber.services.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              for (final s in barber.services)
+                                Chip(
+                                  label: Text(
+                                    '${s.name} · ${money(s.price)}',
+                                    style: const TextStyle(fontSize: 11.5),
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 6),
+                                ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Tap to book with ${barber.name.split(' ').first}',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Theme.of(context).colorScheme.primary),
                       ),
+                    ],
+                  ),
+                ),
+                Column(
+                  children: [
+                    StarRating(barber.averageRating, size: 15),
+                    const SizedBox(height: 8),
+                    const Icon(Icons.chevron_right_rounded,
+                        color: Colors.grey),
                   ],
                 ),
-              ),
-              StarRating(barber.averageRating, size: 15),
-            ],
+              ],
+            ),
           ),
         ),
       ),

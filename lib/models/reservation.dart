@@ -41,6 +41,8 @@ class Reservation {
   String? get shopSlug => shop?['slug'] as String?;
   String get barberName => barber?['name'] as String? ?? '—';
   String get customerName => customer?['name'] as String? ?? '—';
+  String get customerUsername => customer?['username'] as String? ?? '';
+  String get customerPhone => customer?['phone'] as String? ?? '—';
   String get serviceName => service?['name'] as String? ?? '—';
   String get servicePrice => service?['price']?.toString() ?? '—';
   String get city => shop?['city'] as String? ?? '';

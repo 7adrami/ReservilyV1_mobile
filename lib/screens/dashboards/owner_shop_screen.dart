@@ -1,5 +1,13 @@
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geolocator_web/geolocator_web.dart'
+    if (dart.library.io) 'package:reservily/stubs/web_geolocator_stub.dart'
+    as web_geolocator;
 import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/shop_service.dart';
@@ -37,7 +45,37 @@ class _OwnerShopScreenState extends State<OwnerShopScreen> {
     }
   }
 
+  static const double _defaultLat = 18.0859;
+  static const double _defaultLng = -15.9785;
+
+  Future<Position> _currentPosition() async {
+    if (kIsWeb) {
+      return GeolocatorPlatform.instance.getCurrentPosition(
+        locationSettings: web_geolocator.WebSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: const Duration(seconds: 6),
+        ),
+      );
+    }
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied) {
+      throw Exception('Location permission was denied.');
+    }
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception(
+          'Location permission is permanently denied. Enable it in settings.');
+    }
+    return Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.medium,
+      timeLimit: const Duration(seconds: 8),
+    );
+  }
+
   Future<void> _edit() async {
+    final scheme = Theme.of(context).colorScheme;
     final s = _shop;
     if (s == null) return;
     final name = TextEditingController(text: s['name'] as String? ?? '');
@@ -48,6 +86,11 @@ class _OwnerShopScreenState extends State<OwnerShopScreen> {
     final opensAt = TextEditingController(text: s['opens_at'] as String? ?? '09:00');
     final closesAt = TextEditingController(text: s['closes_at'] as String? ?? '21:30');
     var active = s['is_active'] != false;
+    double lat = (s['latitude'] as num?)?.toDouble() ?? _defaultLat;
+    double lng = (s['longitude'] as num?)?.toDouble() ?? _defaultLng;
+    final mapController = MapController();
+    var locating = false;
+    var reverseGeocoding = false;
     List<int>? photoBytes;
     String? photoName;
 
@@ -116,6 +159,139 @@ class _OwnerShopScreenState extends State<OwnerShopScreen> {
                   icon: const Icon(Icons.photo_outlined),
                   label: Text(photoBytes == null ? 'Change shop photo' : 'Photo selected'),
                 ),
+                const SizedBox(height: 14),
+                const Text('Location',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    height: 180,
+                    child: FlutterMap(
+                      mapController: mapController,
+                      options: MapOptions(
+                        initialCenter: LatLng(lat, lng),
+                        initialZoom: 15,
+                        onTap: (_, point) {
+                          setSheetState(() {
+                            lat = point.latitude;
+                            lng = point.longitude;
+                          });
+                        },
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.reservily.app',
+                        ),
+                        MarkerLayer(
+                          markers: [
+                            Marker(
+                              point: LatLng(lat, lng),
+                              width: 40,
+                              height: 40,
+                              child: Icon(Icons.location_pin,
+                                  color: scheme.primary, size: 40),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: locating
+                            ? null
+                            : () async {
+                                setSheetState(() => locating = true);
+                                try {
+                                  final pos = await _currentPosition();
+                                  setSheetState(() {
+                                    lat = pos.latitude;
+                                    lng = pos.longitude;
+                                  });
+                                  mapController.move(LatLng(lat, lng), 15);
+                                } catch (e) {
+                                  if (context.mounted) showError(context, e);
+                                } finally {
+                                  if (mounted) {
+                                    setSheetState(() => locating = false);
+                                  }
+                                }
+                              },
+                        icon: locating
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.my_location_rounded),
+                        label: Text(locating ? 'Locating…' : 'Use my location'),
+                      ),
+                    ),
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: reverseGeocoding
+                            ? null
+                            : () async {
+                                setSheetState(() => reverseGeocoding = true);
+                                try {
+                                  final resp = await Dio().get<Map<String, dynamic>>(
+                                    'https://nominatim.openstreetmap.org/reverse',
+                                    queryParameters: {
+                                      'format': 'jsonv2',
+                                      'lat': '$lat',
+                                      'lon': '$lng',
+                                    },
+                                    options: Options(
+                                      responseType: ResponseType.json,
+                                      receiveTimeout: const Duration(seconds: 12),
+                                    ),
+                                  );
+                                  final display =
+                                      resp.data?['display_name'] as String?;
+                                  if (display == null || display.isEmpty) {
+                                    throw Exception(
+                                        'No address found for this location.');
+                                  }
+                                  final parts = display.split(',');
+                                  if (parts.length > 1) parts.removeLast();
+                                  final addr =
+                                      resp.data?['address'] as Map<String, dynamic>?;
+                                  final place = addr?['city'] ??
+                                      addr?['town'] ??
+                                      addr?['village'] ??
+                                      addr?['state'];
+                                  final cityName =
+                                      place is String ? place : (place?.toString() ?? '');
+                                  setSheetState(() {
+                                    address.text = parts.join(',').trim();
+                                    if (cityName.isNotEmpty) {
+                                      city.text = cityName;
+                                    }
+                                  });
+                                } catch (e) {
+                                  if (context.mounted) showError(context, e);
+                                } finally {
+                                  if (mounted) {
+                                    setSheetState(() => reverseGeocoding = false);
+                                  }
+                                }
+                              },
+                        icon: const Icon(Icons.map_rounded),
+                        label: Text(reverseGeocoding
+                            ? 'Getting address…'
+                            : 'Fill address from map'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text('Tap the map to set the exact location.',
+                    style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
                 const SizedBox(height: 18),
                 ElevatedButton(
                   onPressed: () => Navigator.pop(context, true),
@@ -140,6 +316,8 @@ class _OwnerShopScreenState extends State<OwnerShopScreen> {
               'opens_at': opensAt.text.trim(),
               'closes_at': closesAt.text.trim(),
               'is_active': '$active',
+              'latitude': '$lat',
+              'longitude': '$lng',
             },
             photoBytes: photoBytes,
             photoFilename: photoName,

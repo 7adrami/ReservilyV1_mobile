@@ -71,7 +71,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
                 },
         );
       }
-      if (mounted) context.go('/chat/${result.id}');
+      if (mounted) context.go('/chat/${result.id}', extra: result.other);
     } catch (e) {
       if (mounted) showError(context, e);
     }

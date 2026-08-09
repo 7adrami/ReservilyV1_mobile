@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../core/api_client.dart';
@@ -36,6 +37,10 @@ class ChatIdentity {
   String? _sessionPassword;
   Set<int> _hidden = {};
 
+  /// Public key we last wrapped into the server backup this session, so repeat
+  /// chat opens skip the expensive PBKDF2 re-wrap.
+  String? _lastSyncedPub;
+
   Map<String, dynamic>? get identity => _identity;
   String? get publicKey => _identity?['pub'] as String?;
   bool get hasIdentity => _identity != null;
@@ -51,6 +56,11 @@ class ChatIdentity {
     required String username,
     VaultPasswordPrompt? passwordPrompt,
   }) async {
+    // Fast path: this session already resolved the identity for this account.
+    // The vault fetch + PBKDF2 unwrap + key re-upload only need to happen once.
+    if (_identity != null && _username == username) {
+      return _identity!;
+    }
     _username = username;
     await _loadHidden();
 
@@ -104,7 +114,7 @@ class ChatIdentity {
     // Fast path: a password captured earlier in this session.
     if (_sessionPassword != null) {
       try {
-        return _unwrap(vault, _sessionPassword!);
+        return await _unwrap(vault, _sessionPassword!);
       } catch (_) {
         _sessionPassword = null;
       }
@@ -126,7 +136,7 @@ class ChatIdentity {
     switch (answer.result) {
       case VaultPromptResult.unlocked:
         final password = answer.password!;
-        final identity = _unwrap(vault, password);
+        final identity = await _unwrap(vault, password);
         _sessionPassword = password;
         return identity;
       case VaultPromptResult.reset:
@@ -141,10 +151,15 @@ class ChatIdentity {
     }
   }
 
-  Map<String, dynamic> _unwrap(VaultData vault, String password) {
-    final kek = ChatCrypto.deriveKek(password, vault.salt);
-    return ChatCrypto.unwrapIdentity(
-        vault.salt, vault.iv, vault.wrappedKey, kek);
+  /// PBKDF2 (150k iterations) + AES-GCM unwrap runs in a background isolate
+  /// so it never blocks the UI.
+  Future<Map<String, dynamic>> _unwrap(VaultData vault, String password) {
+    return compute(ChatCrypto.unwrapIdentityInIsolate, {
+      'salt': vault.salt,
+      'iv': vault.iv,
+      'wrapped': vault.wrappedKey,
+      'password': password,
+    });
   }
 
   /// Unlocks the vault identity. This is the ONLY path when a backup exists:
@@ -157,7 +172,7 @@ class ChatIdentity {
     var password = _sessionPassword;
     if (password != null) {
       try {
-        return _unwrap(vault, password);
+        return await _unwrap(vault, password);
       } catch (_) {
         _sessionPassword = null;
         password = null;
@@ -228,15 +243,21 @@ class ChatIdentity {
   }
 
   /// Creates or refreshes the password-wrapped backup. The salt stays stable
-  /// once created so a password always derives the same KEK.
+  /// once created so a password always derives the same KEK. Re-wrapping
+  /// (PBKDF2, 150k iterations) runs in a background isolate and is skipped
+  /// when the identity was already backed up this session.
   Future<void> _syncVault(Map<String, dynamic> identity) async {
     final password = _sessionPassword;
     if (password == null) return;
+    if (_lastSyncedPub == identity['pub']) return;
     final existing = await _fetchVault();
     final salt = existing?.salt ??
         ChatCrypto.bytesToB64(ChatCrypto.randomBytes(AppConfig.kekSaltBytes));
-    final kek = ChatCrypto.deriveKek(password, salt);
-    final wrapped = ChatCrypto.wrapIdentity(identity, salt, kek);
+    final wrapped = await compute(ChatCrypto.wrapIdentityInIsolate, {
+      'salt': salt,
+      'password': password,
+      'identity': identity,
+    });
     await api.request(
       '/api/chat/vault/',
       method: 'POST',
@@ -246,6 +267,7 @@ class ChatIdentity {
         'wrapped_key': wrapped['wrapped'],
       },
     );
+    _lastSyncedPub = identity['pub'];
   }
 
   /// Stores the account password for this session (mirrors sessionStorage).
@@ -260,7 +282,7 @@ class ChatIdentity {
     required VaultData vault,
     required String password,
   }) async {
-    final identity = _unwrap(vault, password);
+    final identity = await _unwrap(vault, password);
     _identity = identity;
     _sessionPassword = password;
     final key = _identityKey(_username ?? 'default');

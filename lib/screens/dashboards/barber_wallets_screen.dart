@@ -17,14 +17,26 @@ class _BarberWalletsScreenState extends State<BarberWalletsScreen> {
   String? _error;
 
   static const _apps = [
-    'Orange Money',
-    'Moov Money',
-    'Wave',
-    'MTN MoMo',
-    'Airtel Money',
-    'Bank transfer',
-    'Cash',
+    ('bankily', 'Bankily'),
+    ('masrvi', 'Masrvi'),
+    ('click_bnm', 'Click by BNM'),
+    ('amanty', 'Amanty'),
+    ('bim_wallet', 'BIM Wallet'),
+    ('bmi_wallet', 'BMI Wallet'),
+    ('proci', 'ProCi'),
+    ('bci_pocket', 'BCI Mobile Pocket'),
+    ('moov_money', 'Moov Money'),
+    ('mattel_cash', 'Mattel Cash / M-Meyza'),
+    ('chinguit_pay', 'Chinguit Pay'),
+    ('sedad', 'Sedad'),
+    ('mauritanie_pay', 'Mauritanie Pay'),
+    ('barid_cash', 'Barid Cash'),
+    ('mauripay', 'MauriPay (Cadorim)'),
+    ('houwel', 'Houwel'),
   ];
+
+  String _walletKey(Map<String, dynamic> w) =>
+      w['key'] as String? ?? w['app'] as String? ?? '';
 
   @override
   void initState() {
@@ -49,10 +61,9 @@ class _BarberWalletsScreenState extends State<BarberWalletsScreen> {
 
   Future<void> _edit([int? index]) async {
     final isEdit = index != null;
-    final app = TextEditingController(
-        text: isEdit ? _wallets[index]['app'] as String : '');
+    var app = isEdit ? _walletKey(_wallets[index]) : '';
     final phone = TextEditingController(
-        text: isEdit ? _wallets[index]['phone'] as String : '');
+        text: isEdit ? (_wallets[index]['phone'] as String? ?? '') : '');
 
     final saved = await showModalBottomSheet<bool>(
       context: context,
@@ -73,13 +84,18 @@ class _BarberWalletsScreenState extends State<BarberWalletsScreen> {
                   style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
-                value: app.text.isEmpty ? null : app.text,
+                value: app.isEmpty ? null : app,
                 decoration: const InputDecoration(
                     labelText: 'Payment method', border: OutlineInputBorder()),
-                items: _apps
-                    .map((a) => DropdownMenuItem(value: a, child: Text(a)))
+                items: [
+                  ..._apps,
+                  if (app.isNotEmpty && !_apps.any((a) => a.$1 == app))
+                    (app, app),
+                ]
+                    .map((a) =>
+                        DropdownMenuItem(value: a.$1, child: Text(a.$2)))
                     .toList(),
-                onChanged: (v) => app.text = v ?? '',
+                onChanged: (v) => app = v ?? '',
               ),
               const SizedBox(height: 12),
               AppField('Phone number', controller: phone,
@@ -97,9 +113,9 @@ class _BarberWalletsScreenState extends State<BarberWalletsScreen> {
     if (saved != true || !mounted) return;
     final list = List<Map<String, dynamic>>.from(_wallets);
     if (isEdit) {
-      list[index] = {'app': app.text, 'phone': phone.text.trim()};
+      list[index] = {'app': app, 'phone': phone.text.trim()};
     } else {
-      list.add({'app': app.text, 'phone': phone.text.trim()});
+      list.add({'app': app, 'phone': phone.text.trim()});
     }
     try {
       await context.read<ShopService>().saveWallets(list);
@@ -158,8 +174,8 @@ class _BarberWalletsScreenState extends State<BarberWalletsScreen> {
                     child: Icon(Icons.account_balance_wallet_rounded,
                         color: scheme.onPrimaryContainer, size: 20),
                   ),
-                  title: Text(w['app'] as String),
-                  subtitle: Text(w['phone'] as String),
+                  title: Text(w['name'] as String? ?? _walletKey(w)),
+                  subtitle: Text((w['phone'] as String?) ?? ''),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

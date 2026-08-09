@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -44,32 +46,45 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (user == null) return;
     final identity = context.read<ChatIdentity>();
     final chat = context.read<ChatService>();
+    final pw = session.sessionPassword;
+    identity.setSessionPassword(pw);
+
+    // The screen renders as soon as the room exists; encryption keys and
+    // messages load in the background (the status line shows the unlock state).
+    ChatUserInfo other;
     try {
-      final pw = session.sessionPassword;
-      identity.setSessionPassword(pw);
-      await identity.ensureIdentity(
-        username: user.username,
-        passwordPrompt: pw != null
-            ? (({required String message}) async {
-                return VaultPrompt(result: VaultPromptResult.unlocked, password: pw);
-              })
-            : _vaultPrompt,
-      );
-      ChatUserInfo other = widget.other ?? await _findOther();
-      final room = ChatRoomController(
-        chatService: chat,
-        identity: identity,
-        myUsername: user.username,
-        myUserId: user.id,
-        myName: user.name,
-      );
-      room.addListener(_onRoomChanged);
-      _room = room;
-      await room.open(widget.conversationId, other);
-      if (mounted) setState(() => _ready = true);
+      other = widget.other ?? await _findOther();
     } catch (e) {
       if (mounted) setState(() => _initError = friendlyError(e));
+      return;
     }
+    final room = ChatRoomController(
+      chatService: chat,
+      identity: identity,
+      myUsername: user.username,
+      myUserId: user.id,
+      myName: user.name,
+    );
+    room.addListener(_onRoomChanged);
+    _room = room;
+    if (mounted) setState(() => _ready = true);
+
+    unawaited(() async {
+      try {
+        await identity.ensureIdentity(
+          username: user.username,
+          passwordPrompt: pw != null
+              ? (({required String message}) async {
+                  return VaultPrompt(
+                      result: VaultPromptResult.unlocked, password: pw);
+                })
+              : _vaultPrompt,
+        );
+        await room.open(widget.conversationId, other);
+      } catch (e) {
+        if (mounted) setState(() => _initError = friendlyError(e));
+      }
+    }());
   }
 
   Future<ChatUserInfo> _findOther() async {
@@ -140,21 +155,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _onRoomChanged() {
-    if (mounted) {
-      setState(() {
-        _decodedEmoji.clear();
-        for (final m in _room?.messages ?? const <ChatMessage>[]) {
-          for (final r in m.reactions) {
-            if (r.ciphertext != null) {
-              _room!.decryptEmoji(r).then((emoji) {
-                if (emoji != null && mounted) {
-                  setState(() => _decodedEmoji[r.id] = emoji);
-                }
-              });
-            }
+    if (!mounted) return;
+    final room = _room;
+    if (room == null) return;
+    setState(() {});
+    // Decrypt reaction emojis only once per reaction; never re-decrypt the
+    // whole history on every 3s poll notification.
+    if (!room.unlocked) return;
+    for (final m in room.messages) {
+      for (final r in m.reactions) {
+        if (r.ciphertext == null) continue;
+        if (_decodedEmoji.containsKey(r.id)) continue;
+        room.decryptEmoji(r).then((emoji) {
+          if (emoji != null && mounted && !_decodedEmoji.containsKey(r.id)) {
+            setState(() => _decodedEmoji[r.id] = emoji);
           }
-        }
-      });
+        });
+      }
     }
   }
 
@@ -577,18 +594,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         children: [
           Expanded(
             child: room.messages.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.chat_bubble_outline_rounded,
-                            size: 48, color: scheme.outline),
-                        const SizedBox(height: 10),
-                        Text('No messages yet',
-                            style: TextStyle(color: scheme.onSurfaceVariant)),
-                      ],
-                    ),
-                  )
+                ? (room.loading
+                    ? const Center(
+                        child: CircularProgressIndicator(strokeWidth: 3))
+                    : Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.chat_bubble_outline_rounded,
+                                size: 48, color: scheme.outline),
+                            const SizedBox(height: 10),
+                            Text('No messages yet',
+                                style: TextStyle(
+                                    color: scheme.onSurfaceVariant)),
+                          ],
+                        ),
+                      ))
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
                     reverse: true,

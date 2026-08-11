@@ -40,19 +40,24 @@ jobs:
   build-signed-ipa:
     runs-on: macos-latest
     timeout-minutes: 60
-    if: >-
-      secrets.APPLE_CERT_P12_BASE64 != '' &&
-      secrets.APPLE_CERT_PASSWORD != '' &&
-      secrets.APPLE_PROVISIONING_PROFILE_BASE64 != ''
     steps:
+      - name: Check signing secrets
+        id: secrets
+        env:
+          HAS_ALL: ${{ secrets.APPLE_CERT_P12_BASE64 != '' && secrets.APPLE_CERT_PASSWORD != '' && secrets.APPLE_PROVISIONING_PROFILE_BASE64 != '' }}
+        run: echo "has_all=$HAS_ALL" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        if: steps.secrets.outputs.has_all == 'true'
 
       - uses: subosito/flutter-action@v2
+        if: steps.secrets.outputs.has_all == 'true'
         with:
           flutter-version: '3.24.5'
           channel: 'stable'
 
       - name: Import signing certificate
+        if: steps.secrets.outputs.has_all == 'true'
         run: |
           echo "${{ secrets.APPLE_CERT_P12_BASE64 }}" | base64 --decode > cert.p12
           echo "${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}" | base64 --decode > profile.mobileprovision
@@ -67,11 +72,13 @@ jobs:
           cp profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
       - name: Build signed IPA
+        if: steps.secrets.outputs.has_all == 'true'
         run: |
           flutter pub get
           flutter build ipa --release --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
 
       - uses: actions/upload-artifact@v4
+        if: steps.secrets.outputs.has_all == 'true'
         with:
           name: Reservily-ios-signed
           path: build/ios/ipa/*.ipa

@@ -36,7 +36,7 @@ dependencies:
   dio: ^5.11.0
   provider: ^6.1.5+1
   go_router: ^15.1.2
-  flutter_secure_storage: ^10.3.1
+  flutter_secure_storage: ^9.2.4
   cached_network_image: ^3.4.1
   intl: ^0.20.2
   pointycastle: ^4.0.0
@@ -47,6 +47,10 @@ dependencies:
   latlong2: ^0.9.1
   geolocator: 12.0.0
   geolocator_web: ^4.1.4
+
+dependency_overrides:
+  # 4.6.x requires a newer Flutter Gradle plugin than 3.24.5 provides
+  geolocator_android: 4.5.3
 
 dev_dependencies:
   flutter_test:

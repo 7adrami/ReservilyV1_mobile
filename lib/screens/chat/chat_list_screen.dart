@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -20,12 +21,23 @@ class _ChatListScreenState extends State<ChatListScreen> {
   List<BroadcastInfo> _broadcasts = [];
   Set<int> _dismissedIds = {};
   bool _loading = true;
+  bool _refreshing = false;
   String? _error;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // New messages appear on the list within ~3s of being sent (near
+    // real-time without server push on the free hosting plan).
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) => _silentRefresh());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -52,6 +64,29 @@ class _ChatListScreenState extends State<ChatListScreen> {
       if (mounted) setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Background refresh: updates the lists in place without a spinner.
+  Future<void> _silentRefresh() async {
+    if (_refreshing || _loading || !mounted) return;
+    _refreshing = true;
+    try {
+      final chat = context.read<ChatService>();
+      final results = await Future.wait([
+        chat.conversations(),
+        chat.broadcasts(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _conversations = results[0] as List<ConversationSummary>;
+        _broadcasts = results[1] as List<BroadcastInfo>;
+        _error = null;
+      });
+    } catch (_) {
+      // Transient; the next tick retries.
+    } finally {
+      _refreshing = false;
     }
   }
 

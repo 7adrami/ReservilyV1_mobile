@@ -220,6 +220,7 @@ class ChatRoomController extends ChangeNotifier {
           ? await identity.cachedConvoKey(
               conversationId: convId, myPub: myPub, otherPub: latestPub)
           : null;
+      debugPrint('[room] convo key cache ${cached != null ? 'HIT' : 'MISS'}');
       if (cached != null) {
         final bytes = ChatCrypto.b64ToBytes(cached);
         _key = bytes;
@@ -252,6 +253,7 @@ class ChatRoomController extends ChangeNotifier {
     final activePriv =
         candidates.isNotEmpty ? candidates.first : null;
     if (activePriv == null) return;
+    final t0 = DateTime.now();
     // Fast path: derive the key for the ACTIVE identity and the other user's
     // latest public key (one ECDH, ~1 second) so the room unlocks right away.
     // The full candidate x pub x salt derivation then runs in the background
@@ -262,6 +264,8 @@ class ChatRoomController extends ChangeNotifier {
       'salts': salts,
     }).then((result) {
         if (_conversationId == null) return;
+        debugPrint('[room] ECDH derived in '
+            '${DateTime.now().difference(t0).inMilliseconds}ms');
         final keyB64 = result['key'] as String?;
         if (keyB64 != null) {
           final derived = ChatCrypto.b64ToBytes(keyB64);
@@ -382,14 +386,16 @@ class ChatRoomController extends ChangeNotifier {
   void _startPolling() {
     _pollTimer?.cancel();
     var pollCount = 0;
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+    // 1s tick: messages land within ~1s of being sent (the free hosting plan
+    // allows neither WebSockets nor long-lived streams, so tight polling is
+    // the way to get the "near real-time" feel).
+    _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       pollCount++;
       if (_conversationId == null) return;
       if (_polling) return;
       _polling = true;
       try {
         await _pollMessages();
-        await _pollReactions();
         if (pollCount % 5 == 0) await refreshRoomKeys();
       } finally {
         _polling = false;
@@ -416,51 +422,35 @@ class ChatRoomController extends ChangeNotifier {
         _decryptVisible();
         notifyListeners();
       } else {
-        _updateReadMarks(res.messages);
+        _applyLiveFields(res.messages);
       }
     } on Exception {
       // Transient; retried next tick.
     }
   }
 
-  void _updateReadMarks(List<ChatMessage> fresh) {
+  void _applyLiveFields(List<ChatMessage> fresh) {
     final byId = {for (final f in fresh) f.id: f};
     var changed = false;
     for (final m in messages) {
       final live = byId[m.id];
-      if (live != null &&
-          (live.deliveredAt != m.deliveredAt || live.readAt != m.readAt)) {
-        m
-          ..deliveredAt = live.deliveredAt
-          ..readAt = live.readAt;
-        changed = true;
-      }
-    }
-    if (changed) notifyListeners();
-  }
-
-  Future<void> _pollReactions() async {
-    final convId = _conversationId;
-    if (convId == null) return;
-    try {
-      final fresh = await chatService.reactions(convId);
-      if (_conversationId != convId) return;
-      final byMsg = <int, List<ReactionInfo>>{};
-      for (final r in fresh) {
-        (byMsg[r.messageId] ??= []).add(r);
-      }
-      var changed = false;
-      for (final m in messages) {
-        final list = byMsg[m.id] ?? <ReactionInfo>[];
-        if (_reactionSignature(m.reactions) != _reactionSignature(list)) {
-          m.reactions = list;
+      if (live != null) {
+        if (live.deliveredAt != m.deliveredAt || live.readAt != m.readAt) {
+          m
+            ..deliveredAt = live.deliveredAt
+            ..readAt = live.readAt;
+          changed = true;
+        }
+        // Reactions arrive inside the message payload; keep them in sync
+        // without a second request per tick.
+        final sig = _reactionSignature(m.reactions);
+        if (_reactionSignature(live.reactions) != sig) {
+          m.reactions = live.reactions;
           changed = true;
         }
       }
-      if (changed) notifyListeners();
-    } on Exception {
-      // Transient.
     }
+    if (changed) notifyListeners();
   }
 
   static String _reactionSignature(List<ReactionInfo> reactions) => reactions

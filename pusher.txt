@@ -2,7 +2,7 @@ cd "C:\Users\dell\Desktop\django\reservily\reservily_flutter"
 
 git init
 git add .
-git commit -m "about to finish man++"
+git commit -m "the project is almost done "
 
 git branch -M main
 

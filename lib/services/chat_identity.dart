@@ -1,6 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show compute, debugPrint;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../core/api_client.dart';
@@ -43,6 +44,8 @@ class ChatIdentity {
   /// Public key we last wrapped into the server backup this session, so repeat
   /// chat opens skip the expensive PBKDF2 re-wrap.
   String? _lastSyncedPub;
+  /// True once the best-effort backup refresh was scheduled this session.
+  bool _syncScheduled = false;
 
   Map<String, dynamic>? get identity => _identity;
   String? get publicKey => _identity?['pub'] as String?;
@@ -66,6 +69,7 @@ class ChatIdentity {
     }
     _username = username;
     await _loadHidden();
+    final t0 = DateTime.now();
 
     final key = _identityKey(username);
     final stored = await _readIdentity(key);
@@ -81,17 +85,14 @@ class ChatIdentity {
       // matching local identity). The vault is only consulted when the local
       // key is stale (identity rotated on another device) or absent.
       identity = stored;
-      if (_sessionPassword != null) {
-        try {
-          await _syncVault(identity);
-        } on Exception {
-          // Re-wrap happens again next launch.
-        }
-      }
+      debugPrint('[identity] fast path (local key matches server) '
+          'in ${DateTime.now().difference(t0).inMilliseconds}ms');
     } else {
       final vault = await vaultFuture;
       if (vault != null) {
         identity = await _unlockVault(vault, passwordPrompt);
+        debugPrint('[identity] vault unlock '
+            'in ${DateTime.now().difference(t0).inMilliseconds}ms');
       } else {
         // No backup exists yet: use the local identity if present, otherwise
         // a migrated legacy key, otherwise generate a fresh one.
@@ -101,6 +102,8 @@ class ChatIdentity {
           // identity. Prompts for the account password when unavailable.
           await _ensureVaultBackup(identity, passwordPrompt);
         }
+        debugPrint('[identity] no-vault local/generate path '
+            'in ${DateTime.now().difference(t0).inMilliseconds}ms');
       }
     }
     if (identity == null) throw Exception('No encryption key');
@@ -108,8 +111,19 @@ class ChatIdentity {
     _identity = identity;
     await _storage.write(key: key, value: jsonEncode(identity));
 
-    if (_sessionPassword != null) {
-      await _syncVault(identity);
+    // Refresh the password backup, but NEVER gate chat on it: the PBKDF2
+    // re-wrap takes ~9s in pure Dart and a stale backup is harmless. Runs in
+    // the background once per session.
+    final resolved = identity;
+    if (_sessionPassword != null && !_syncScheduled) {
+      _syncScheduled = true;
+      unawaited(() async {
+        try {
+          await _syncVault(resolved);
+        } on Exception {
+          _syncScheduled = false; // retried on next launch
+        }
+      }());
     }
 
     // Re-upload the public key on every load so the server never keeps a stale
@@ -273,8 +287,10 @@ class ChatIdentity {
   }
 
   /// True when the account's canonical public key changed away from [localPub]
-  /// (identity rotated on another device). Falls back to "differs" when the
-  /// server cannot be reached so the safe (vault unlock) path is used.
+  /// (identity rotated on another device). On a network failure we TRUST the
+  /// local key: chat stays instant (the vault would prompt for a password the
+  /// user likely cannot provide right now), and the recovery-key derivation
+  /// still decrypts history if the identity truly rotated.
   Future<bool> _serverKeyDiffersFrom(String? localPub) async {
     if (localPub == null) return true;
     try {
@@ -284,9 +300,9 @@ class ChatIdentity {
         return serverPub == null || serverPub != localPub;
       }
     } on Exception {
-      // Network hiccup: treat as unknown and use the vault path.
+      // Network hiccup: use the stored identity; re-checked on next launch.
     }
-    return true;
+    return false;
   }
 
   /// Creates the password-wrapped backup for an account that has none yet.

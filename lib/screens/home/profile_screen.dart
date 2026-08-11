@@ -23,20 +23,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final file = await ImagePicker()
         .pickImage(source: ImageSource.gallery, maxWidth: 1024, maxHeight: 1024);
     if (file == null) return;
+    if (!mounted) return;
+    final auth = context.read<AuthService>();
     final bytes = await file.readAsBytes();
     if (bytes.length > 4 * 1024 * 1024) {
       if (mounted) showError(context, 'Avatar too large (max 4 MB).');
       return;
     }
     setState(() => _busy = true);
-    final ctx = context;
-    final uploadAvatarBytes = ctx.read<AuthService>().uploadAvatarBytes;
     try {
-      await uploadAvatarBytes(bytes, file.name);
+      await auth.uploadAvatarBytes(bytes, file.name);
     } catch (e) {
-      if (ctx.mounted) showError(ctx, e);
+      if (mounted) showError(context, e);
     } finally {
-      if (ctx.mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _busy = false);
     }
   }
 

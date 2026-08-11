@@ -41,6 +41,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _init() async {
+    if (mounted) setState(() => _initError = null);
     final session = context.read<Session>();
     final user = session.user;
     if (user == null) return;
@@ -71,7 +72,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     unawaited(() async {
       try {
-        await identity.ensureIdentity(
+        // Open the room immediately (fetches keys + messages in parallel) and
+        // resolve the identity concurrently (local key matched against the
+        // server, no vault round-trip on the fast path). When the identity
+        // lands, nudge the room to derive right away instead of waiting for
+        // the 1s retry tick.
+        final identityFuture = identity.ensureIdentity(
           username: user.username,
           passwordPrompt: pw != null
               ? (({required String message}) async {
@@ -81,6 +87,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               : _vaultPrompt,
         );
         await room.open(widget.conversationId, other);
+        await identityFuture;
+        room.identityReady();
       } catch (e) {
         if (mounted) setState(() => _initError = friendlyError(e));
       }
@@ -594,7 +602,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         children: [
           Expanded(
             child: room.messages.isEmpty
-                ? (room.loading
+                ? (room.loading || room.conversationId == null
                     ? const Center(
                         child: CircularProgressIndicator(strokeWidth: 3))
                     : Center(

@@ -31,11 +31,14 @@ class ChatIdentity {
 
   static const _identityPrefix = 'reservily_chat_identity_v1:';
   static const _hiddenKey = 'reservily_chat_hidden_v1';
+  static const _convoKeysKey = 'reservily_convo_keys_v1';
 
   Map<String, dynamic>? _identity;
   String? _username;
   String? _sessionPassword;
   Set<int> _hidden = {};
+  Map<String, dynamic> _convoKeys = const {};
+  bool _convoLoaded = false;
 
   /// Public key we last wrapped into the server backup this session, so repeat
   /// chat opens skip the expensive PBKDF2 re-wrap.
@@ -66,21 +69,38 @@ class ChatIdentity {
 
     final key = _identityKey(username);
     final stored = await _readIdentity(key);
-    final vault = await _fetchVault();
+    // Fetch the vault in the background: the fast path below does not need it,
+    // and the unlock path awaits it (already resolved by then on slow links).
+    final vaultFuture = _fetchVault();
     Map<String, dynamic>? identity;
 
-    if (vault != null) {
-      // The server vault is the SINGLE canonical cross-platform identity. It is
-      // the only source of truth: never fall back to a divergent local key.
-      identity = await _unlockVault(vault, passwordPrompt);
+    if (stored != null && !await _serverKeyDiffersFrom(stored['pub'] as String?)) {
+      // Fast path: the key stored on THIS device is already the server's
+      // canonical key -- skip the vault fetch, PBKDF2 unwrap and password
+      // prompt entirely (mirrors the web app, which never asks when it has a
+      // matching local identity). The vault is only consulted when the local
+      // key is stale (identity rotated on another device) or absent.
+      identity = stored;
+      if (_sessionPassword != null) {
+        try {
+          await _syncVault(identity);
+        } on Exception {
+          // Re-wrap happens again next launch.
+        }
+      }
     } else {
-      // No backup exists yet: use the local identity if present, otherwise a
-      // migrated legacy key, otherwise generate a fresh one.
-      identity = stored ?? await _recoverOrGenerate(null, passwordPrompt);
-      if (identity != null) {
-        // ALWAYS create the backup so both platforms (web & app) can discover
-        // the identity. Prompts for the account password when unavailable.
-        await _ensureVaultBackup(identity, passwordPrompt);
+      final vault = await vaultFuture;
+      if (vault != null) {
+        identity = await _unlockVault(vault, passwordPrompt);
+      } else {
+        // No backup exists yet: use the local identity if present, otherwise
+        // a migrated legacy key, otherwise generate a fresh one.
+        identity = stored ?? await _recoverOrGenerate(null, passwordPrompt);
+        if (identity != null) {
+          // Create the backup so both platforms (web & app) can discover the
+          // identity. Prompts for the account password when unavailable.
+          await _ensureVaultBackup(identity, passwordPrompt);
+        }
       }
     }
     if (identity == null) throw Exception('No encryption key');
@@ -110,7 +130,15 @@ class ChatIdentity {
     VaultData? vault,
     VaultPasswordPrompt? passwordPrompt,
   ) async {
-    if (vault == null) return ChatCrypto.generateIdentity();
+    if (vault == null) {
+      // Adopt the server-provisioned identity (created for keyless/new
+      // accounts so they are chat-ready immediately) before generating a
+      // fresh one. Claiming keeps pre-first-open messages decryptable and
+      // drops the server's temporary private copy on the next key upload.
+      final claimed = await _claimProvisionedIdentity();
+      if (claimed != null) return claimed;
+      return ChatCrypto.generateIdentity();
+    }
     // Fast path: a password captured earlier in this session.
     if (_sessionPassword != null) {
       try {
@@ -151,6 +179,26 @@ class ChatIdentity {
     }
   }
 
+  /// Fetches the server-provisioned identity for this account
+  /// ({public_key, private_jwk}) or null when there is none to claim.
+  /// The client becomes the sole holder of the private key once it uploads
+  /// the matching public key (see ensureIdentity's re-upload).
+  Future<Map<String, dynamic>?> _claimProvisionedIdentity() async {
+    try {
+      final data = await api.request('/api/chat/keys/self/');
+      if (data is Map<String, dynamic>) {
+        final pub = data['public_key'] as String?;
+        final priv = data['private_jwk'];
+        if (pub != null && priv is Map<String, dynamic>) {
+          return {'pub': pub, 'priv': priv};
+        }
+      }
+    } on Exception {
+      // No provisioned key (or a network hiccup); fall through to fresh.
+    }
+    return null;
+  }
+
   /// PBKDF2 (150k iterations) + AES-GCM unwrap runs in a background isolate
   /// so it never blocks the UI.
   Future<Map<String, dynamic>> _unwrap(VaultData vault, String password) {
@@ -179,9 +227,12 @@ class ChatIdentity {
       }
     }
     if (passwordPrompt == null) {
-      // No password and no way to ask: cannot unlock safely.
+      // No password and no UI to ask: fall back to claiming provisioned identity
+      // or generating a fresh identity so chat can continue.
       _sessionPassword = null;
-      return null;
+      final claimed = await _claimProvisionedIdentity();
+      if (claimed != null) return claimed;
+      return ChatCrypto.generateIdentity();
     }
     final answer = await passwordPrompt(
       message:
@@ -219,6 +270,23 @@ class ChatIdentity {
     } on Exception {
       return null;
     }
+  }
+
+  /// True when the account's canonical public key changed away from [localPub]
+  /// (identity rotated on another device). Falls back to "differs" when the
+  /// server cannot be reached so the safe (vault unlock) path is used.
+  Future<bool> _serverKeyDiffersFrom(String? localPub) async {
+    if (localPub == null) return true;
+    try {
+      final data = await api.request('/api/chat/keys/self/');
+      if (data is Map<String, dynamic>) {
+        final serverPub = data['public_key'] as String?;
+        return serverPub == null || serverPub != localPub;
+      }
+    } on Exception {
+      // Network hiccup: treat as unknown and use the vault path.
+    }
+    return true;
   }
 
   /// Creates the password-wrapped backup for an account that has none yet.
@@ -355,6 +423,59 @@ class ChatIdentity {
   Future<void> hideForMe(int messageId) async {
     _hidden.add(messageId);
     await _saveHidden();
+  }
+
+  // ------------------------------------------------------- conversation keys
+
+  /// Derived conversation keys survive app restarts: keyed by conversation id
+  /// and bound to BOTH public keys, so a key rotation on either side safely
+  /// misses the cache and triggers a fresh (fast-path) derivation. This is
+  /// what makes reopening a chat after the first time effectively instant.
+  Future<Map<String, dynamic>> _convoKeyMap() async {
+    if (_convoLoaded) return _convoKeys;
+    _convoLoaded = true;
+    try {
+      final raw = await _storage.read(key: _convoKeysKey);
+      if (raw != null) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map<String, dynamic>) _convoKeys = decoded;
+      }
+    } catch (_) {
+      // Corrupt cache: treated as empty; re-derived on next open.
+    }
+    return _convoKeys;
+  }
+
+  /// The persisted conversation key when the cached entry still matches the
+  /// current identities of both sides, else null.
+  Future<String?> cachedConvoKey({
+    required int conversationId,
+    required String myPub,
+    required String otherPub,
+  }) async {
+    final all = await _convoKeyMap();
+    final entry = all['$conversationId'];
+    if (entry is! Map<String, dynamic>) return null;
+    if (entry['my'] != myPub || entry['pub'] != otherPub) return null;
+    final key = entry['key'];
+    return key is String ? key : null;
+  }
+
+  Future<void> saveConvoKey({
+    required int conversationId,
+    required String myPub,
+    required String otherPub,
+    required String keyB64,
+  }) async {
+    await _convoKeyMap();
+    final next = Map<String, dynamic>.from(_convoKeys);
+    next['$conversationId'] = {'my': myPub, 'pub': otherPub, 'key': keyB64};
+    _convoKeys = next;
+    try {
+      await _storage.write(key: _convoKeysKey, value: jsonEncode(next));
+    } catch (_) {
+      // In-memory cache still serves this session.
+    }
   }
 
   // ------------------------------------------------------------- storage

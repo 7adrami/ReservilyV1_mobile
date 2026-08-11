@@ -279,16 +279,21 @@ class ChatCrypto {
   /// ECDH + HKDF conversation key, matching WebCrypto's deriveBits/deriveKey.
   static Uint8List deriveConversationKey(
       Map<String, dynamic> myJwk, String otherPubB64, String salt) {
-    final myPriv = _importJwk(myJwk);
-    final otherPoint = _spkiDecode(otherPubB64);
-    final agreement = ECDHBasicAgreement()..init(myPriv);
-    final secret = agreement.calculateAgreement(ECPublicKey(otherPoint, _p256));
-    final bits = _fixed(secret, _coordBytes);
     return hkdfSha256(
-      ikm: bits,
+      ikm: _agreementSecret(_importJwk(myJwk), otherPubB64),
       salt: _utf8(salt),
       info: _utf8(AppConfig.saltInfo),
     );
+  }
+
+  /// The raw ECDH shared secret for (my private, other public) as fixed-width
+  /// P-256 X-coordinate bytes. Expensive in pure Dart, so it is computed once
+  /// per (private, public) pair and reused for every salt.
+  static Uint8List _agreementSecret(ECPrivateKey myPriv, String otherPubB64) {
+    final otherPoint = _spkiDecode(otherPubB64);
+    final agreement = ECDHBasicAgreement()..init(myPriv);
+    final secret = agreement.calculateAgreement(ECPublicKey(otherPoint, _p256));
+    return _fixed(secret, _coordBytes);
   }
 
   // ------------------------------------------------------------- payloads
@@ -330,8 +335,31 @@ class ChatCrypto {
     return wrapIdentity(args['identity'] as Map<String, dynamic>, salt, kek);
   }
 
+  /// Derives the conversation key for the ACTIVE identity and the other
+  /// user's LATEST public key (one ECDH, ~1 second in pure Dart). Used as the
+  /// fast path so the room unlocks immediately; the full candidate derivation
+  /// runs in the background afterwards to recover legacy-message keys.
+  static Map<String, dynamic> deriveConversationKeyInIsolate(
+      Map<String, dynamic> args) {
+    final priv = args['priv'] as Map<String, dynamic>;
+    final pub = args['pub'] as String;
+    final salts = (args['salts'] as List).cast<String>();
+    final secret = _agreementSecret(_importJwk(priv), pub);
+    for (final salt in salts) {
+      final key = hkdfSha256(
+        ikm: secret,
+        salt: _utf8(salt),
+        info: _utf8(AppConfig.saltInfo),
+      );
+      if (key.isNotEmpty) return {'key': bytesToB64(key)};
+    }
+    return {'key': null};
+  }
+
   /// Derives every conversation-key candidate (priv x pub x salt) in an
-  /// isolate and returns base64 keys plus the index of the active key.
+  /// isolate and returns base64 keys plus the index of the active key. The
+  /// expensive ECDH step is done once per (private, public) pair, then the
+  /// cheap HKDF is applied per salt.
   static Map<String, dynamic> deriveConversationKeysInIsolate(
       Map<String, dynamic> args) {
     final candidates =
@@ -340,9 +368,15 @@ class ChatCrypto {
     final salts = (args['salts'] as List).cast<String>();
     final flat = <String>[];
     for (final priv in candidates) {
+      final myPriv = _importJwk(priv);
       for (final pub in pubs) {
+        final secret = _agreementSecret(myPriv, pub);
         for (final salt in salts) {
-          flat.add(bytesToB64(deriveConversationKey(priv, pub, salt)));
+          flat.add(bytesToB64(hkdfSha256(
+            ikm: secret,
+            salt: _utf8(salt),
+            info: _utf8(AppConfig.saltInfo),
+          )));
         }
       }
     }

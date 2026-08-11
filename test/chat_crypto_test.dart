@@ -193,7 +193,7 @@ void main() {
         salt,
       );
       // Sanity: the new identity does NOT match the ciphertext's old key.
-      if (newKey.length > 0) {
+      if (newKey.isNotEmpty) {
         final sameAsOld = newKey.join(',') == oldKey.join(',');
         // Not guaranteed to differ, but it must not be the key that decrypts
         // the old message unless it IS the old key.

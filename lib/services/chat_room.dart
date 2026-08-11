@@ -53,6 +53,21 @@ class ChatRoomController extends ChangeNotifier {
   Timer? _pollTimer;
   Timer? _keyTimer;
   bool _polling = false;
+  bool _fetchingInitial = false;
+
+  static final Map<String, Uint8List> _keyCache = {};
+  static final Map<String, Map<String, dynamic>> _legacyCache = {};
+  static const int _keyCacheMax = 300;
+
+  static String _keyCacheKey(String myPub, String otherPub, List<String> salts) =>
+      '${myPub.compareTo(otherPub) < 0 ? '$myPub|$otherPub' : '$otherPub|$myPub'}|'
+      '${salts.join(',')}';
+
+  static void _cacheKeyPut(
+      String myPub, String otherPub, List<String> salts, Uint8List key) {
+    if (_keyCache.length >= _keyCacheMax) _keyCache.clear();
+    _keyCache[_keyCacheKey(myPub, otherPub, salts)] = key;
+  }
 
   int? get conversationId => _conversationId;
   ChatUserInfo? get other => _other;
@@ -97,15 +112,39 @@ class ChatRoomController extends ChangeNotifier {
     notifyListeners();
 
     _startKeyRetry();
+    // Fetch the message history NOW, in parallel with key resolution, so the
+    // history is already on screen (as encrypted placeholders) by the time the
+    // conversation key lands -- decrypting in place instead of waiting for a
+    // second round-trip after derivation.
+    unawaited(_loadInitialMessages());
     await _tryFetchKeys();
     _startPolling();
   }
 
+  /// Called once the chat identity is available (local key matched against the
+  /// server or vault unlocked). Kicks the derivation immediately instead of
+  /// waiting for the next 1s retry tick.
+  Future<void> identityReady() async {
+    if (_conversationId == null || unlocked) return;
+    await _tryFetchKeys();
+  }
+
   void _startKeyRetry() {
     _keyTimer?.cancel();
-    _keyTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    // Retry quickly for the first 3 attempts (covers the common case of a
+    // brand-new account whose provisioned key was just created server-side)
+    // then settle to a 3-second cadence.
+    int fastTicks = 0;
+    _keyTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_conversationId == null) return;
-      if (!unlocked) _tryFetchKeys();
+      if (unlocked) {
+        _keyTimer?.cancel();
+        return;
+      }
+      fastTicks++;
+      if (fastTicks <= 3 || fastTicks % 3 == 0) {
+        _tryFetchKeys();
+      }
     });
   }
 
@@ -114,6 +153,7 @@ class ChatRoomController extends ChangeNotifier {
     final convId = _conversationId;
     if (other == null || convId == null) return;
     if (_pubCount > 0) return; // already unlocked, refreshRoomKeys handles rotation
+    if (_deriving) return;    // derivation already in flight
     try {
       final pubs = await chatService.keysFor(other.username);
       if (_conversationId != convId) return;
@@ -123,10 +163,13 @@ class ChatRoomController extends ChangeNotifier {
         notifyListeners();
         return;
       }
+      // Clear any prior transient error now that we have keys.
+      error = null;
       _deriveAllKeys(pubs, other.username);
     } on Exception catch (e) {
       if (_conversationId != convId) return;
-      status = RoomStatus.noKey;
+      // Keep status as waiting so the timer retries; only show noKey after
+      // the server confirms there truly is no key (empty pubs list).
       loading = false;
       error = e.toString();
       notifyListeners();
@@ -144,10 +187,16 @@ class ChatRoomController extends ChangeNotifier {
     _pubCount = pubs.length;
     final salts = ChatCrypto.candidateSalts(myUsername, otherUsername);
     final activePriv = identity.identity?['priv'] as Map<String, dynamic>?;
+    // Identity still loading (vault unlock prompt / claim in flight): do NOT
+    // run the slow full-candidate derivation yet. Reset so the key-retry
+    // timer re-fetches and re-derives the instant the identity is ready.
+    if (activePriv == null) {
+      _deriving = false;
+      _pubCount = 0;
+      return;
+    }
     // Recovery net: try every private key we have on device, active first.
-    final candidates = <Map<String, dynamic>>[
-      if (activePriv != null) activePriv,
-    ];
+    final candidates = <Map<String, dynamic>>[activePriv];
     final seenPubs = <String>{identity.identity?['pub'] as String? ?? ''};
     for (final ident in _identityBackups) {
       final priv = ident['priv'];
@@ -156,40 +205,141 @@ class ChatRoomController extends ChangeNotifier {
         candidates.add(priv);
       }
     }
-    // ECDH P-256 derivation is slow in pure Dart: run it off the UI isolate.
+    final myPub = identity.identity?['pub'] as String? ?? '';
+    final convId = _conversationId;
+    final latestPub = pubs.isNotEmpty ? pubs.last : null;
+    if (latestPub == null) {
+      // No keys to derive against yet; legacy path covers the empty case.
+      _deriveLegacyKeys(candidates, pubs, salts);
+      return;
+    }
+    // Fast path: reuse the key that was derived and persisted earlier for this
+    // exact (identity, other key) pair -- restarts stay instant, no ECDH.
+    unawaited(() async {
+      final cached = convId != null
+          ? await identity.cachedConvoKey(
+              conversationId: convId, myPub: myPub, otherPub: latestPub)
+          : null;
+      if (cached != null) {
+        final bytes = ChatCrypto.b64ToBytes(cached);
+        _key = bytes;
+        _cacheKeyPut(myPub, latestPub, salts, bytes);
+        status = RoomStatus.unlocked;
+        loading = false;
+        _deriving = false;
+        notifyListeners();
+        if (messages.isEmpty) {
+          _loadInitialMessages();
+        } else {
+          _decryptVisible(retryFailed: true);
+        }
+        // Legacy keys (rotated identities) come from the result cache too,
+        // so repeat opens never re-run the heavy batch derivation.
+        _deriveLegacyKeys(candidates, pubs, salts);
+        return;
+      }
+      _deriveFastKey(candidates, pubs, salts, myPub, latestPub, convId);
+    }());
+  }
+
+  void _deriveFastKey(
+      List<Map<String, dynamic>> candidates,
+      List<String> pubs,
+      List<String> salts,
+      String myPub,
+      String latestPub,
+      int? convId) {
+    final activePriv =
+        candidates.isNotEmpty ? candidates.first : null;
+    if (activePriv == null) return;
+    // Fast path: derive the key for the ACTIVE identity and the other user's
+    // latest public key (one ECDH, ~1 second) so the room unlocks right away.
+    // The full candidate x pub x salt derivation then runs in the background
+    // to also recover keys for old identities and rotated keys.
+    compute(ChatCrypto.deriveConversationKeyInIsolate, {
+      'priv': activePriv,
+      'pub': latestPub,
+      'salts': salts,
+    }).then((result) {
+        if (_conversationId == null) return;
+        final keyB64 = result['key'] as String?;
+        if (keyB64 != null) {
+          final derived = ChatCrypto.b64ToBytes(keyB64);
+          _cacheKeyPut(myPub, latestPub, salts, derived);
+          if (convId != null) {
+            identity.saveConvoKey(
+              conversationId: convId,
+              myPub: myPub,
+              otherPub: latestPub,
+              keyB64: keyB64,
+            );
+          }
+          _key = derived;
+          status = RoomStatus.unlocked;
+          loading = false;
+          notifyListeners();
+          if (messages.isEmpty) {
+            _loadInitialMessages();
+          } else {
+            _decryptVisible(retryFailed: true);
+          }
+        }
+        _deriveLegacyKeys(candidates, pubs, salts);
+      }).catchError((_) {
+        if (_conversationId == null) return;
+        _deriveLegacyKeys(candidates, pubs, salts);
+      });
+  }
+
+  void _deriveLegacyKeys(
+      List<Map<String, dynamic>> candidates,
+      List<String> pubs,
+      List<String> salts) {
+    // ECDH P-256 derivation is slow in pure Dart: run it off the UI isolate,
+    // and remember the result so repeat opens are instant.
+    final sig = [
+      for (final c in candidates) c['pub'] as String? ?? '',
+      '|${pubs.join('|')}|${salts.join(',')}',
+    ].join('|');
+    final hit = _legacyCache[sig];
+    if (hit != null) {
+      _applyLegacyResult(hit['keys'], hit['activeIndex']);
+      return;
+    }
     compute(ChatCrypto.deriveConversationKeysInIsolate, {
       'candidates': candidates,
       'pubs': pubs,
       'salts': salts,
     }).then((result) {
-      _deriving = false;
-      if (_conversationId == null) return;
       final keysB64 = (result['keys'] as List).cast<String>();
       final activeIdx = result['activeIndex'] as int;
-      _key =
-          keysB64.isNotEmpty ? ChatCrypto.b64ToBytes(keysB64[activeIdx]) : null;
-      _legacyKeys.clear();
-      if (keysB64.isNotEmpty) {
-        for (var i = 0; i < keysB64.length; i++) {
-          if (i != activeIdx) _legacyKeys.add(ChatCrypto.b64ToBytes(keysB64[i]));
-        }
-      }
-      status = _key != null ? RoomStatus.unlocked : RoomStatus.noKey;
-      loading = false;
-      notifyListeners();
-      if (messages.isEmpty) {
-        _loadInitialMessages();
-      } else {
-        _decryptVisible(retryFailed: true);
-      }
+      if (_legacyCache.length >= 100) _legacyCache.clear();
+      _legacyCache[sig] = {'keys': keysB64, 'activeIndex': activeIdx};
+      _applyLegacyResult(keysB64, activeIdx);
     }).catchError((_) {
       _deriving = false;
-      _pubCount = 0;
+      _pubCount = 0;  // ensure retry timer can re-enter _tryFetchKeys
       if (_conversationId == null) return;
-      status = RoomStatus.noKey;
+      status = RoomStatus.waiting;  // keep retrying instead of giving up
       loading = false;
       notifyListeners();
     });
+  }
+
+  void _applyLegacyResult(List<String> keysB64, int activeIdx) {
+    _deriving = false;
+    if (_conversationId == null) return;
+    _legacyKeys.clear();
+    for (var i = 0; i < keysB64.length; i++) {
+      if (i != activeIdx) _legacyKeys.add(ChatCrypto.b64ToBytes(keysB64[i]));
+    }
+    if (_key == null && keysB64.isNotEmpty) {
+      _key = ChatCrypto.b64ToBytes(keysB64[activeIdx]);
+    }
+    status = _key != null ? RoomStatus.unlocked : RoomStatus.noKey;
+    loading = false;
+    notifyListeners();
+    _decryptVisible(retryFailed: true);
   }
 
   /// Called periodically: if the other user rotated their key, re-derive so
@@ -210,7 +360,8 @@ class ChatRoomController extends ChangeNotifier {
 
   Future<void> _loadInitialMessages() async {
     final convId = _conversationId;
-    if (convId == null) return;
+    if (convId == null || _fetchingInitial) return;
+    _fetchingInitial = true;
     try {
       final res = await chatService.messages(convId);
       if (_conversationId != convId) return;
@@ -220,6 +371,11 @@ class ChatRoomController extends ChangeNotifier {
       if (_conversationId != convId) return;
       error = e.toString();
       notifyListeners();
+    } finally {
+      _fetchingInitial = false;
+      // The key may have landed while history was being fetched: decrypt what
+      // is now on screen without waiting for the next poll tick.
+      if (_conversationId == convId) _decryptVisible(retryFailed: true);
     }
   }
 

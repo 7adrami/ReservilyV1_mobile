@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -16,6 +18,7 @@ class ChatListScreen extends StatefulWidget {
 class _ChatListScreenState extends State<ChatListScreen> {
   List<ConversationSummary> _conversations = [];
   List<BroadcastInfo> _broadcasts = [];
+  Set<int> _dismissedIds = {};
   bool _loading = true;
   String? _error;
 
@@ -32,10 +35,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
         chat.conversations(),
         chat.broadcasts(),
       ]);
+      const storage = FlutterSecureStorage();
+      final dismissedRaw = await storage.read(key: 'reservily_dismissed_broadcasts') ?? '[]';
+      final List<dynamic> dismissedList = jsonDecode(dismissedRaw);
+      final dismissedSet = dismissedList.cast<int>().toSet();
+
       if (mounted) {
         setState(() {
           _conversations = results[0] as List<ConversationSummary>;
           _broadcasts = results[1] as List<BroadcastInfo>;
+          _dismissedIds = dismissedSet;
           _error = null;
         });
       }
@@ -57,6 +66,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Compute visible broadcasts once to avoid declaration inside collection literals.
+    final List<BroadcastInfo> visibleBroadcasts = _broadcasts.where((b) => !_dismissedIds.contains(b.id)).toList();
     return Scaffold(
       appBar: AppBar(
         title: const Text('Chat'),
@@ -90,16 +101,30 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 child: Center(child: CircularProgressIndicator()),
               ),
             if (_broadcasts.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Text('Announcements',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: scheme.primary)),
-              ),
-              ..._broadcasts.map((b) => _BroadcastTile(b)),
-              const SizedBox(height: 8),
+              if (visibleBroadcasts.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  child: Text('Announcements',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: scheme.primary)),
+                ),
+                ...visibleBroadcasts.map((b) => _BroadcastTile(
+                      b: b,
+                      onDismiss: () async {
+                        setState(() {
+                          _dismissedIds.add(b.id);
+                        });
+                        const storage = FlutterSecureStorage();
+                        await storage.write(
+                          key: 'reservily_dismissed_broadcasts',
+                          value: jsonEncode(_dismissedIds.toList()),
+                        );
+                      },
+                    )),
+                const SizedBox(height: 8),
+              ],
             ],
             if (_conversations.isEmpty && !_loading && _error == null)
               const MessageView(
@@ -134,7 +159,7 @@ class _ConversationTile extends StatelessWidget {
       leading: Stack(
         children: [
           AppAvatar(c.other.avatar, name: c.other.name, size: 46),
-          if (c.other.hasKey)
+          if (!c.other.hasKey)
             Positioned(
               right: 0,
               bottom: 0,
@@ -181,9 +206,10 @@ class _ConversationTile extends StatelessWidget {
 }
 
 class _BroadcastTile extends StatelessWidget {
-  const _BroadcastTile(this.b);
+  const _BroadcastTile({required this.b, required this.onDismiss});
 
   final BroadcastInfo b;
+  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -196,6 +222,11 @@ class _BroadcastTile extends StatelessWidget {
         title: Text(b.message,
             maxLines: 2, overflow: TextOverflow.ellipsis),
         subtitle: Text(b.createdAt.toLocal().toString().substring(0, 16)),
+        trailing: IconButton(
+          icon: const Icon(Icons.close_rounded, size: 18),
+          tooltip: 'Dismiss',
+          onPressed: onDismiss,
+        ),
         onTap: () => context.push('/chat/broadcasts'),
       ),
     );

@@ -4,10 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/session.dart';
 import '../../models/chat.dart';
 import '../../services/chat_service.dart';
-import '../../services/chat_identity.dart';
 import '../../widgets/common.dart';
 
 class NewChatScreen extends StatefulWidget {
@@ -53,24 +51,8 @@ class _NewChatScreenState extends State<NewChatScreen> {
 
   Future<void> _start(ChatUserInfo u) async {
     try {
-      final session = context.read<Session>();
       final chat = context.read<ChatService>();
-      final identity = context.read<ChatIdentity>();
       final result = await chat.start(u.username);
-      if (!identity.hasIdentity) {
-        final pw = session.sessionPassword;
-        identity.setSessionPassword(pw);
-        await identity.ensureIdentity(
-          username: session.user?.username ?? u.username,
-          passwordPrompt: pw != null
-              ? (({required String message}) async {
-                  return VaultPrompt(result: VaultPromptResult.unlocked, password: pw);
-                })
-              : ({required String message}) async {
-                  return VaultPrompt(result: VaultPromptResult.cancelled);
-                },
-        );
-      }
       if (mounted) context.go('/chat/${result.id}', extra: result.other);
     } catch (e) {
       if (mounted) showError(context, e);

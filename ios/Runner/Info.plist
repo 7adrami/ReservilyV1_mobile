@@ -8,6 +8,10 @@
 	<string>Reservily</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Reservily needs your location to find barbershops near you.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Reservily uses the camera to take photos for chat and booking payment proof.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Reservily needs photo library access to upload payment proof, profile photos and chat images.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

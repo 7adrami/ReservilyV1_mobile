@@ -132,7 +132,12 @@ class _BarberDashboardScreenState extends State<BarberDashboardScreen> {
                 padding: EdgeInsets.symmetric(vertical: 24),
                 child: Center(child: Text('No upcoming reservations.')),
               ),
-            ..._upcoming.map((r) => _ReservationTile(r: r)),
+            ..._upcoming.map((r) => _ReservationTile(
+                  r: r,
+                  onConfirm: r.isPending ? () => _setStatus(r, 'confirmed') : null,
+                  onComplete: r.isActive ? () => _setStatus(r, 'completed') : null,
+                  onCancel: r.isActive ? () => _setStatus(r, 'cancelled') : null,
+                )),
             const SizedBox(height: 16),
             const Text('Past',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
@@ -142,7 +147,12 @@ class _BarberDashboardScreenState extends State<BarberDashboardScreen> {
                 padding: EdgeInsets.symmetric(vertical: 24),
                 child: Center(child: Text('No past reservations.')),
               ),
-            ..._past.map((r) => _ReservationTile(r: r)),
+            ..._past.map((r) => _ReservationTile(
+                  r: r,
+                  onConfirm: r.isPending ? () => _setStatus(r, 'confirmed') : null,
+                  onComplete: r.isActive ? () => _setStatus(r, 'completed') : null,
+                  onCancel: r.isActive ? () => _setStatus(r, 'cancelled') : null,
+                )),
             const SizedBox(height: 16),
             const Text('Cancelled',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
@@ -235,8 +245,7 @@ class _ReservationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final isToday =
-        onConfirm != null || onComplete != null || onCancel != null;
+    final isToday = _isSameDay(r.date, DateTime.now());
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       clipBehavior: Clip.antiAlias,
@@ -312,6 +321,9 @@ class _ReservationTile extends StatelessWidget {
       ),
     );
   }
+
+  static bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
   void _showDetails(BuildContext context) {
     showModalBottomSheet<void>(

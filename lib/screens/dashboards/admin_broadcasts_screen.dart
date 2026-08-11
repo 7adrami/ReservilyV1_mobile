@@ -69,6 +69,35 @@ class _AdminBroadcastsScreenState extends State<AdminBroadcastsScreen> {
               ),
               const SizedBox(height: 12),
               AppField('Message', controller: message, maxLines: 4),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text('Insert name:',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  const SizedBox(width: 10),
+                  ActionChip(
+                    avatar: const Icon(Icons.person_rounded, size: 16),
+                    label: const Text('Full name'),
+                    onPressed: () =>
+                        _insertPlaceholder(message, '{name}'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    avatar: const Icon(Icons.person_outline_rounded, size: 16),
+                    label: const Text('First name'),
+                    onPressed: () =>
+                        _insertPlaceholder(message, '{first name}'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '{name} and {first name} are replaced with each recipient\u2019s name when the broadcast is delivered.',
+                style: TextStyle(
+                    fontSize: 12, color: Theme.of(context).colorScheme.outline),
+              ),
               const SizedBox(height: 18),
               ElevatedButton(
                 onPressed: () => Navigator.pop(context, true),
@@ -80,14 +109,30 @@ class _AdminBroadcastsScreenState extends State<AdminBroadcastsScreen> {
       ),
     );
     if (saved != true || !mounted) return;
+    final text = message.text.trim();
+    if (text.isEmpty) {
+      if (mounted) showMessage(context, 'Write a message first.');
+      return;
+    }
     try {
       await context.read<ShopService>().createBroadcast(
-          message.text.trim(), audience: audience);
+          text, audience: audience);
       _load();
       if (mounted) showMessage(context, 'Broadcast sent.');
     } catch (e) {
       if (mounted) showError(context, e);
     }
+  }
+
+  /// Inserts a placeholder token at the cursor (or appends it) and refocuses.
+  void _insertPlaceholder(TextEditingController controller, String token) {
+    final selection = controller.selection;
+    final isCollapsed = !selection.isValid || selection.isCollapsed;
+    final start = isCollapsed ? controller.text.length : selection.start;
+    final end = isCollapsed ? controller.text.length : selection.end;
+    controller.text = controller.text.replaceRange(start, end, token);
+    controller.selection =
+        TextSelection.collapsed(offset: start + token.length);
   }
 
   @override

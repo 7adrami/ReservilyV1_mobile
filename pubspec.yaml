@@ -47,6 +47,7 @@ dependencies:
   latlong2: ^0.9.1
   geolocator: 12.0.0
   geolocator_web: ^4.1.4
+  flutter_local_notifications: ^19.5.0
 
 dependency_overrides:
   # 4.6.x requires a newer Flutter Gradle plugin than 3.24.5 provides

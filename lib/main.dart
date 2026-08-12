@@ -30,11 +30,16 @@ import 'screens/home_shell.dart';
 import 'services/auth_service.dart';
 import 'services/chat_identity.dart';
 import 'services/chat_service.dart';
+import 'services/notification_service.dart';
 import 'services/reservation_service.dart';
 import 'services/shop_service.dart';
 
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.instance.init();
+  NotificationService.instance.requestPermission();
   runApp(const ReservilyApp());
 }
 
@@ -102,6 +107,11 @@ class _AppRootState extends State<_AppRoot> {
   Future<void> _bootstrap() async {
     final auth = context.read<AuthService>();
     final theme = context.read<ThemeController>();
+    NotificationService.instance.onOpenConversation = (conversationId) {
+      final navigator = rootNavigatorKey.currentContext;
+      if (navigator == null) return;
+      GoRouter.of(navigator).push('/chat/$conversationId');
+    };
     if (!_restored) {
       _restored = true;
       try {
@@ -132,6 +142,7 @@ GoRouter _buildRouter(BuildContext context) {
 
   return GoRouter(
     initialLocation: '/',
+    navigatorKey: rootNavigatorKey,
     refreshListenable: session,
     redirect: (context, state) {
       final loggedIn = session.isAuthenticated;

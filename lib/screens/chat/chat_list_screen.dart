@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/chat.dart';
 import '../../services/chat_service.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/common.dart';
 
 class ChatListScreen extends StatefulWidget {
@@ -20,6 +21,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   List<ConversationSummary> _conversations = [];
   List<BroadcastInfo> _broadcasts = [];
   Set<int> _dismissedIds = {};
+  final Map<int, int> _knownUnread = {};
   bool _loading = true;
   bool _refreshing = false;
   String? _error;
@@ -60,6 +62,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
           _error = null;
         });
       }
+      // Baseline only: no notifications for what was already in the inbox.
+      _recordUnread(_conversations);
     } catch (e) {
       if (mounted) setState(() => _error = friendlyError(e));
     } finally {
@@ -83,11 +87,33 @@ class _ChatListScreenState extends State<ChatListScreen> {
         _broadcasts = results[1] as List<BroadcastInfo>;
         _error = null;
       });
+      _notifyNewMessages(_conversations);
     } catch (_) {
       // Transient; the next tick retries.
     } finally {
       _refreshing = false;
     }
+  }
+
+  /// Remembers the current unread counts so the next poll can spot increases.
+  void _recordUnread(List<ConversationSummary> conversations) {
+    final ids = conversations.map((c) => c.id).toSet();
+    _knownUnread.removeWhere((id, _) => !ids.contains(id));
+    for (final c in conversations) {
+      _knownUnread[c.id] = c.unread;
+    }
+  }
+
+  /// Fires a system notification for each conversation whose unread count
+  /// grew since the last poll (i.e. a new message arrived).
+  void _notifyNewMessages(List<ConversationSummary> conversations) {
+    for (final c in conversations) {
+      final previous = _knownUnread[c.id];
+      if (previous != null && c.unread > previous && !c.lastIsMe && !_loading) {
+        NotificationService.instance.showNewMessage(c.id, c.other.name);
+      }
+    }
+    _recordUnread(conversations);
   }
 
   void _openConversation(ConversationSummary c) {

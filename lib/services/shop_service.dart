@@ -286,4 +286,40 @@ class ShopService {
       body: {'message': message, 'audience': audience},
     );
   }
+
+  Future<void> deleteBroadcast(int id) async {
+    await api.request('/api/admin/broadcasts/$id/', method: 'DELETE');
+  }
+
+  Future<List<Map<String, dynamic>>> adminUsers({String? query}) async {
+    final data = await api.request(
+      '/api/admin/users/',
+      query: query != null && query.isNotEmpty ? {'q': query} : null,
+    ) as Map<String, dynamic>;
+    return ((data['users'] as List<dynamic>? ?? [])).cast<Map<String, dynamic>>();
+  }
+
+  Future<bool> adminToggleUser(int id) async {
+    final data = await api.request(
+      '/api/admin/users/$id/toggle/',
+      method: 'POST',
+    ) as Map<String, dynamic>;
+    return data['is_active'] as bool? ?? false;
+  }
+
+  Future<List<Map<String, dynamic>>> adminShops() async {
+    final data = await api.request('/api/admin/shops/') as Map<String, dynamic>;
+    return ((data['shops'] as List<dynamic>? ?? [])).cast<Map<String, dynamic>>();
+  }
+
+  Future<void> deleteShop(String slug) async {
+    await api.request('/api/admin/shops/$slug/', method: 'DELETE');
+  }
+
+  Future<List<Map<String, dynamic>>> adminFeedback() async {
+    final data =
+        await api.request('/api/admin/feedback/') as Map<String, dynamic>;
+    return ((data['feedback'] as List<dynamic>? ?? []))
+        .cast<Map<String, dynamic>>();
+  }
 }

@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/chat_badge.dart';
 import '../../models/chat.dart';
 import '../../services/chat_service.dart';
 import '../../services/notification_service.dart';
@@ -64,6 +65,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       }
       // Baseline only: no notifications for what was already in the inbox.
       _recordUnread(_conversations);
+      _publishBadge(_conversations);
     } catch (e) {
       if (mounted) setState(() => _error = friendlyError(e));
     } finally {
@@ -88,11 +90,21 @@ class _ChatListScreenState extends State<ChatListScreen> {
         _error = null;
       });
       _notifyNewMessages(_conversations);
+      _publishBadge(_conversations);
     } catch (_) {
       // Transient; the next tick retries.
     } finally {
       _refreshing = false;
     }
+  }
+
+  /// Publishes the total unread DM count to the app-wide badge notifier so the
+  /// message (chat) navigation icon shows a WhatsApp-style count.
+  void _publishBadge(List<ConversationSummary> conversations) {
+    final total = conversations.fold<int>(0, (sum, c) => sum + c.unread);
+    try {
+      context.read<ChatBadgeNotifier>().update(total);
+    } catch (_) {}
   }
 
   /// Remembers the current unread counts so the next poll can spot increases.
@@ -105,8 +117,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   /// Fires a system notification for each conversation whose unread count
-  /// grew since the last poll (i.e. a new message arrived).
+  /// grew since the last poll (i.e. a new message arrived). Only fires while
+  /// the app is in the foreground — in the background/killed state FCM
+  /// handles the notification.
   void _notifyNewMessages(List<ConversationSummary> conversations) {
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      _recordUnread(conversations);
+      return;
+    }
     for (final c in conversations) {
       final previous = _knownUnread[c.id];
       if (previous != null && c.unread > previous && !c.lastIsMe && !_loading) {

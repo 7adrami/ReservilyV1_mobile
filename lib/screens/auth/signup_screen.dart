@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/auth_service.dart';
+import '../../l10n/app_localizations.dart';
 import '../../widgets/common.dart';
 import 'auth_widgets.dart';
 
@@ -78,7 +79,7 @@ class _SignupScreenState extends State<SignupScreen> {
                 : _lastName.text.trim(),
           );
       if (mounted) {
-        showMessage(context, 'Welcome to Reservily!');
+        showMessage(context, context.tr('welcomeToApp'));
         context.go('/');
       }
     } catch (e) {
@@ -91,7 +92,7 @@ class _SignupScreenState extends State<SignupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Create account')),
+      appBar: AppBar(title: Text(context.tr('createAccount'))),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
@@ -122,23 +123,23 @@ class _SignupScreenState extends State<SignupScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AppField(
-          'Username',
+          context.tr('username'),
           controller: _username,
           icon: Icons.alternate_email_rounded,
           textInputAction: TextInputAction.next,
           validator: (v) => (v == null || v.trim().isEmpty)
-              ? 'Choose a username'
-              : (v.trim().contains(' ') ? 'No spaces allowed' : null),
+              ? context.tr('chooseUsername')
+              : (v.trim().contains(' ') ? context.tr('noSpaces') : null),
         ),
         const SizedBox(height: 16),
         AppField(
-          'Email address',
+          context.tr('emailAddress'),
           controller: _email,
           icon: Icons.mail_outline_rounded,
           keyboardType: TextInputType.emailAddress,
           autofillHints: const [AutofillHints.email],
           validator: (v) =>
-              (v == null || !v.contains('@')) ? 'Enter a valid email' : null,
+              (v == null || !v.contains('@')) ? context.tr('validEmail') : null,
         ),
         const SizedBox(height: 24),
         ElevatedButton(
@@ -150,11 +151,11 @@ class _SignupScreenState extends State<SignupScreen> {
                   child: CircularProgressIndicator(
                       strokeWidth: 2, color: Colors.white),
                 )
-              : const Text('Send verification code'),
+              : Text(context.tr('sendCode')),
         ),
         const SizedBox(height: 12),
         Text(
-          'We email you a 6-digit code to confirm your address.',
+          context.tr('emailCodeHint'),
           textAlign: TextAlign.center,
           style: TextStyle(
               fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -167,17 +168,17 @@ class _SignupScreenState extends State<SignupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        AppField('First name',
+        AppField(context.tr('firstName'),
             controller: _firstName,
             icon: Icons.person_outline_rounded,
             textInputAction: TextInputAction.next),
         const SizedBox(height: 12),
-        AppField('Last name',
+        AppField(context.tr('lastName'),
             controller: _lastName,
             icon: Icons.person_outline_rounded,
             textInputAction: TextInputAction.next),
         const SizedBox(height: 16),
-        Text('Verification code sent to ${_email.text.trim()}',
+        Text('${context.tr('codeSentTo')} ${_email.text.trim()}',
             style: TextStyle(
                 fontSize: 13,
                 color: Theme.of(context).colorScheme.onSurfaceVariant)),
@@ -195,9 +196,9 @@ class _SignupScreenState extends State<SignupScreen> {
           ),
         ],
         const SizedBox(height: 16),
-        PasswordField('Password', controller: _password1),
+        PasswordField(context.tr('password'), controller: _password1),
         const SizedBox(height: 12),
-        PasswordField('Confirm password', controller: _password2),
+        PasswordField(context.tr('confirmPassword'), controller: _password2),
         const SizedBox(height: 20),
         ElevatedButton(
           onPressed: _busy ? null : _complete,
@@ -208,7 +209,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   child: CircularProgressIndicator(
                       strokeWidth: 2, color: Colors.white),
                 )
-              : const Text('Create my account'),
+              : Text(context.tr('createMyAccount')),
         ),
       ],
     );

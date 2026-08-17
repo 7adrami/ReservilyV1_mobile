@@ -173,18 +173,14 @@ class _ShopsScreenState extends State<ShopsScreen> {
     setState(() => _locating = true);
     try {
       if (!kIsWeb) {
-        var permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.denied) {
-          permission = await Geolocator.requestPermission();
-        }
-        if (permission == LocationPermission.denied ||
-            permission == LocationPermission.deniedForever) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location permission denied')),
-          );
-          return;
-        }
+        // Ask for GPS permission, but don't block on denial: the IP-based
+        // fallback (which needs no permission) still lets "Near me" work.
+        try {
+          var permission = await Geolocator.checkPermission();
+          if (permission == LocationPermission.denied) {
+            permission = await Geolocator.requestPermission();
+          }
+        } catch (_) {}
       }
       final pos = await _locate();
       if (!mounted) return;

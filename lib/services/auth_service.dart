@@ -223,6 +223,12 @@ class AuthService extends ChangeNotifier {
     await _storeUser(user);
   }
 
+  Future<void> submitFeedback(String message) async {
+    await api.request('/api/feedback/', method: 'POST', body: {
+      'message': message,
+    });
+  }
+
   Future<void> logout() async {
     await api.clearTokens();
     await _storage.delete(key: _kUserId);

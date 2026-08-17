@@ -317,8 +317,7 @@ class _BarberTile extends StatelessWidget {
       child: Card(
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => context
-              .push('/shop/$shopSlug/book?barber=${barber.id}'),
+          onTap: () => context.push('/barbers/${barber.id}'),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Row(
@@ -364,7 +363,7 @@ class _BarberTile extends StatelessWidget {
                         ),
                       const SizedBox(height: 6),
                       Text(
-                        'Tap to book with ${barber.name.split(' ').first}',
+                        'View profile · book · rate',
                         style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,

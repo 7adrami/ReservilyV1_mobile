@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/shop_service.dart';
+import '../../l10n/app_localizations.dart';
 import '../../widgets/common.dart';
 
 class AdminBroadcastsScreen extends StatefulWidget {
@@ -52,23 +53,26 @@ class _AdminBroadcastsScreenState extends State<AdminBroadcastsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('New broadcast',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+              Text(context.tr('newBroadcast'),
+                  style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
                 value: audience,
-                decoration: const InputDecoration(
-                    labelText: 'Audience', border: OutlineInputBorder()),
-                items: const [
-                  DropdownMenuItem(value: 'all', child: Text('Everyone')),
-                  DropdownMenuItem(value: 'barbers', child: Text('Barbers')),
-                  DropdownMenuItem(value: 'owners', child: Text('Shop owners')),
-                  DropdownMenuItem(value: 'customers', child: Text('Customers')),
+                decoration: InputDecoration(
+                    labelText: context.tr('audience'), border: OutlineInputBorder()),
+                items: [
+                  DropdownMenuItem(value: 'all', child: Text(context.tr('audAll'))),
+                  DropdownMenuItem(
+                      value: 'barbers', child: Text(context.tr('audBarbers'))),
+                  DropdownMenuItem(
+                      value: 'owners', child: Text(context.tr('audOwners'))),
+                  DropdownMenuItem(
+                      value: 'customers', child: Text(context.tr('audCustomers'))),
                 ],
                 onChanged: (v) => audience = v ?? 'all',
               ),
               const SizedBox(height: 12),
-              AppField('Message', controller: message, maxLines: 4),
+              AppField(context.tr('message'), controller: message, maxLines: 4),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -101,7 +105,7 @@ class _AdminBroadcastsScreenState extends State<AdminBroadcastsScreen> {
               const SizedBox(height: 18),
               ElevatedButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Send broadcast'),
+                child: Text(context.tr('sendBroadcast')),
               ),
             ],
           ),
@@ -111,7 +115,7 @@ class _AdminBroadcastsScreenState extends State<AdminBroadcastsScreen> {
     if (saved != true || !mounted) return;
     final text = message.text.trim();
     if (text.isEmpty) {
-      if (mounted) showMessage(context, 'Write a message first.');
+      if (mounted) showMessage(context, context.tr('writeMessageFirst'));
       return;
     }
     try {
@@ -121,6 +125,33 @@ class _AdminBroadcastsScreenState extends State<AdminBroadcastsScreen> {
       if (mounted) showMessage(context, 'Broadcast sent.');
     } catch (e) {
       if (mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _confirmDelete(Map<String, dynamic> broadcast) async {
+    final id = broadcast['id'] as int;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.tr('delete')),
+        content: Text(context.tr('deleteBroadcastConfirm')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(context.tr('stay'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(context.tr('delete'))),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      try {
+        await context.read<ShopService>().deleteBroadcast(id);
+        _load();
+      } catch (e) {
+        if (mounted) showError(context, e);
+      }
     }
   }
 
@@ -139,7 +170,7 @@ class _AdminBroadcastsScreenState extends State<AdminBroadcastsScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Broadcasts')),
+      appBar: AppBar(title: Text(context.tr('broadcastsAdmin'))),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _compose,
         icon: const Icon(Icons.campaign_outlined),
@@ -160,9 +191,9 @@ class _AdminBroadcastsScreenState extends State<AdminBroadcastsScreen> {
                 child: Center(child: CircularProgressIndicator()),
               ),
             if (!_loading && _broadcasts.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
-                child: Center(child: Text('No broadcasts yet.')),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Center(child: Text(context.tr('noBroadcasts'))),
               ),
             ..._broadcasts.map((b) {
               final sender = b['sender'] as Map<String, dynamic>?;
@@ -192,14 +223,21 @@ class _AdminBroadcastsScreenState extends State<AdminBroadcastsScreen> {
                             style: TextStyle(
                                 fontSize: 11.5, color: scheme.outline),
                           ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded,
+                                size: 20),
+                            color: scheme.error,
+                            tooltip: context.tr('delete'),
+                            onPressed: () => _confirmDelete(b),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       Text(b['message'] as String,
                           style: const TextStyle(fontSize: 14.5)),
-                      if (sender != null) ...[
-                        const SizedBox(height: 6),
-                        Text('from ${sender['name'] ?? sender['username'] ?? ''}',
+                       if (sender != null) ...[
+                         const SizedBox(height: 6),
+                         Text('${context.tr('from')} ${sender['name'] ?? sender['username'] ?? ''}',
                             style: TextStyle(
                                 fontSize: 11.5, color: scheme.onSurfaceVariant)),
                       ],

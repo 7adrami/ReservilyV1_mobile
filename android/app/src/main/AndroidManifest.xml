@@ -7,6 +7,12 @@
         android:label="Reservily"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon">
+        <!-- Use the white scissors icon for FCM notifications shown by the
+             system when the app is killed, instead of the colored launcher icon. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

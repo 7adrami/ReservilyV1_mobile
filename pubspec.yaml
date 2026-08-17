@@ -38,7 +38,9 @@ dependencies:
   go_router: ^15.1.2
   flutter_secure_storage: ^9.2.4
   cached_network_image: ^3.4.1
-  intl: ^0.20.2
+  intl: ^0.19.0
+  flutter_localizations:
+    sdk: flutter
   pointycastle: ^4.0.0
   image_picker: ^1.1.2
   file_picker: ^8.1.2
@@ -48,6 +50,8 @@ dependencies:
   geolocator: 12.0.0
   geolocator_web: ^4.1.4
   flutter_local_notifications: ^19.5.0
+  firebase_core: ^4.7.0
+  firebase_messaging: ^16.2.0
 
 dependency_overrides:
   # 4.6.x requires a newer Flutter Gradle plugin than 3.24.5 provides
@@ -78,21 +82,23 @@ flutter:
 
   assets:
     - assets/icons/app_icon.png
+    - assets/icons/icon.png
+    - assets/icons/transparent.png
 
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
   remove_alpha_ios: true
-  image_path: "assets/icons/app_icon.png"
+  image_path: "assets/icons/icon.png"
   min_sdk_android: 21
-  adaptive_icon_background: "#0f766e"
-  adaptive_icon_foreground: "assets/icons/app_icon.png"
+  adaptive_icon_background: "assets/icons/transparent.png"
+  adaptive_icon_foreground: "assets/icons/icon.png"
   web:
     generate: true
-    image_path: "assets/icons/app_icon.png"
+    image_path: "assets/icons/icon.png"
   windows:
     generate: true
-    image_path: "assets/icons/app_icon.png"
+    image_path: "assets/icons/icon.png"
     icon_size: 256
 
   # To add assets to your application, add an assets section, like this:

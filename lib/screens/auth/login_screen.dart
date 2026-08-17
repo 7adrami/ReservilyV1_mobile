@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/auth_service.dart';
+import '../../l10n/app_localizations.dart';
 import '../../widgets/common.dart';
 import 'auth_widgets.dart';
 
@@ -58,7 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const _Logo(),
                     const SizedBox(height: 8),
                     Text(
-                      'Welcome back',
+                      context.tr('welcomeBack'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                           fontSize: 26,
@@ -67,13 +68,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Sign in to manage your barber appointments.',
+                      context.tr('signInSubtitle'),
                       textAlign: TextAlign.center,
                       style: TextStyle(color: scheme.onSurfaceVariant),
                     ),
                     const SizedBox(height: 32),
                     AppField(
-                      'Username or email',
+                      context.tr('usernameOrEmail'),
                       controller: _username,
                       icon: Icons.person_outline_rounded,
                       keyboardType: TextInputType.emailAddress,
@@ -83,12 +84,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           (v == null || v.trim().isEmpty) ? 'Required' : null,
                     ),
                     const SizedBox(height: 16),
-                    PasswordField('Password', controller: _password),
+                    PasswordField(context.tr('password'), controller: _password),
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton(
                         onPressed: () => context.push('/password-reset'),
-                        child: const Text('Forgot password?'),
+                        child: Text(context.tr('forgotPassword')),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -101,17 +102,17 @@ class _LoginScreenState extends State<LoginScreen> {
                               child: CircularProgressIndicator(
                                   strokeWidth: 2, color: Colors.white),
                             )
-                          : const Text('Sign in'),
+                          : Text(context.tr('signIn')),
                     ),
                     const SizedBox(height: 16),
                     Wrap(
                       alignment: WrapAlignment.center,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        const Text("Don't have an account?"),
+                        Text(context.tr('noAccount')),
                         TextButton(
                           onPressed: () => context.push('/signup'),
-                          child: const Text('Create one'),
+                          child: Text(context.tr('createOne')),
                         ),
                       ],
                     ),
@@ -131,34 +132,16 @@ class _Logo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Transparent Reservily logo (no background), matching the Android app icon.
     return Center(
-      child: Container(
-        width: 84,
-        height: 84,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF0F766E), Color(0xFF14B8A6)],
-          ),
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF0F766E).withOpacity(0.35),
-              blurRadius: 22,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        alignment: Alignment.center,
-        child: Image.asset(
-          'assets/icons/app_icon.png',
-          width: 84,
-          height: 84,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => const Icon(Icons.storefront_rounded,
-              color: Colors.white, size: 40),
+      child: Image.asset(
+        'assets/icons/icon.png',
+        width: 140,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => const Icon(
+          Icons.storefront_rounded,
+          color: Color(0xFF0F766E),
+          size: 64,
         ),
       ),
     );

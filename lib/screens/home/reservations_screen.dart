@@ -162,8 +162,19 @@ class _BookingCard extends StatelessWidget {
               style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 6),
-            Text('${r.barberName} · ${r.serviceNames}',
-                style: const TextStyle(fontSize: 14)),
+            TextButton(
+              onPressed: r.barber?['id'] == null
+                  ? null
+                  : () => context.push('/barbers/${r.barber!['id']}'),
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                alignment: Alignment.centerLeft,
+              ),
+              child: Text('${r.barberName} · ${r.serviceNames}',
+                  style: const TextStyle(fontSize: 14)),
+            ),
             Text('${money(double.tryParse(r.totalPrice))} · ${r.city}',
                 style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
             if (r.isActive && r.position != null) ...[
@@ -227,6 +238,14 @@ class _BookingCard extends StatelessWidget {
                     onPressed: () => context.push('/shop/${r.shopSlug}'),
                     icon: const Icon(Icons.storefront_outlined, size: 20),
                   ),
+                  const SizedBox(width: 10),
+                  if (r.barber?['id'] != null)
+                    IconButton.filled(
+                      tooltip: 'Rate barber',
+                      onPressed: () =>
+                          context.push('/barbers/${r.barber!['id']}'),
+                      icon: const Icon(Icons.star_rate_rounded, size: 20),
+                    ),
                 ],
               ),
             ],

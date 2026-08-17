@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/chat.dart';
+import '../../l10n/app_localizations.dart';
 import '../../services/chat_service.dart';
 import '../../widgets/common.dart';
 
@@ -45,7 +46,7 @@ class _BroadcastsScreenState extends State<BroadcastsScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Announcements')),
+      appBar: AppBar(title: Text(context.tr('announcements'))),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
@@ -60,9 +61,9 @@ class _BroadcastsScreenState extends State<BroadcastsScreen> {
                 child: Center(child: CircularProgressIndicator()),
               ),
             if (!_loading && _broadcasts.isEmpty && _error == null)
-              const MessageView(
+              MessageView(
                 icon: Icons.campaign_outlined,
-                title: 'No announcements yet',
+                title: context.tr('noAnnouncements'),
               ),
             ..._broadcasts.map((b) => Card(
                   margin: const EdgeInsets.only(bottom: 10),
@@ -103,7 +104,7 @@ class _BroadcastsScreenState extends State<BroadcastsScreen> {
                               AppAvatar(b.sender!.avatar,
                                   name: b.sender!.name, size: 22),
                               const SizedBox(width: 8),
-                              Text('from ${b.sender!.name}',
+                              Text('${context.tr('from')} ${b.sender!.name}',
                                   style: TextStyle(
                                       fontSize: 12,
                                       color: scheme.onSurfaceVariant)),
@@ -120,16 +121,16 @@ class _BroadcastsScreenState extends State<BroadcastsScreen> {
     );
   }
 
-  static String _audienceLabel(String audience) {
+  String _audienceLabel(String audience) {
     switch (audience) {
       case 'barbers':
-        return 'For barbers';
+        return context.tr('broadcastForBarbers');
       case 'owners':
-        return 'For shop owners';
+        return context.tr('broadcastForOwners');
       case 'customers':
-        return 'For customers';
+        return context.tr('broadcastForCustomers');
       default:
-        return 'For everyone';
+        return context.tr('broadcastForEveryone');
     }
   }
 }

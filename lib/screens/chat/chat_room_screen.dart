@@ -517,6 +517,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ),
             ),
             Positioned(
+              left: 8,
+              top: 8,
+              child: IconButton(
+                icon: const Icon(Icons.download_rounded),
+                tooltip: 'Download',
+                onPressed: () => _downloadMedia(ctx, bytes, name),
+              ),
+            ),
+            Positioned(
               right: 8,
               top: 8,
               child: IconButton(
@@ -535,6 +544,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (text != null && text.isNotEmpty) {
       Clipboard.setData(ClipboardData(text: text));
       if (mounted) showMessage(context, 'Message copied');
+    }
+  }
+
+  Future<void> _downloadMedia(
+      BuildContext context, Uint8List bytes, String name) async {
+    try {
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save attachment',
+        fileName: name.isNotEmpty ? name : 'reservily-file',
+        bytes: bytes,
+        type: FileType.any,
+      );
+      if (path == null) return;
+      if (mounted) showMessage(context, 'Saved to $path');
+    } catch (e) {
+      if (mounted) showError(context, e);
     }
   }
 
@@ -631,8 +656,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                          onLongPress: () => _messageMenu(m),
                          onEmojiTap: (emoji) => _toggleReaction(m, emoji),
                          onMediaPreview: (bytes, mime, name) =>
-                             _showMediaPreview(context, bytes, mime, name),
-                       );
+                              _showMediaPreview(context, bytes, mime, name),
+                         onDownload: (bytes, name) =>
+                              _downloadMedia(context, bytes, name),
+                        );
                     },
                   ),
           ),
@@ -774,6 +801,7 @@ class _MessageBubble extends StatelessWidget {
     required this.onLongPress,
     required this.onEmojiTap,
     required this.onMediaPreview,
+    required this.onDownload,
   });
 
   final ChatRoomController room;
@@ -782,6 +810,7 @@ class _MessageBubble extends StatelessWidget {
   final VoidCallback onLongPress;
   final void Function(String emoji) onEmojiTap;
   final void Function(Uint8List bytes, String mime, String name) onMediaPreview;
+  final void Function(Uint8List bytes, String name) onDownload;
 
   Map<String, List<ReactionInfo>> _groupedReactions() {
     final groups = <String, List<ReactionInfo>>{};
@@ -834,11 +863,13 @@ class _MessageBubble extends StatelessWidget {
           final media = snapshot.data!;
           final isImage = media.mime.startsWith('image/');
           final isVideo = media.mime.startsWith('video/');
-          return GestureDetector(
-            onTap: () => onMediaPreview(media.bytes, media.mime, media.name),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          return Stack(
+            children: [
+              GestureDetector(
+                onTap: () => onMediaPreview(media.bytes, media.mime, media.name),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                 if (isImage) ...[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
@@ -927,7 +958,26 @@ class _MessageBubble extends StatelessWidget {
                 ],
               ],
             ),
-          );
+          ),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Material(
+              color: Colors.black54,
+              shape: const CircleBorder(),
+              child: IconButton(
+                icon: const Icon(Icons.download_rounded,
+                    color: Colors.white, size: 18),
+                tooltip: 'Download',
+                constraints:
+                    const BoxConstraints(minWidth: 32, minHeight: 32),
+                padding: EdgeInsets.zero,
+                onPressed: () => onDownload(media.bytes, media.name),
+              ),
+            ),
+          ),
+        ],
+      );
         },
       );
      } else {

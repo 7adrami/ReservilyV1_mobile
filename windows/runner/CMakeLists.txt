@@ -16,6 +16,17 @@ add_executable(${BINARY_NAME} WIN32
   "runner.exe.manifest"
 )
 
+# Copy the Package.appxmanifest (declares the `location` device capability) next
+# to the executable so geolocator can access the device location on Windows
+# desktop. Without it, GetGeopositionAsync returns AccessDenied.
+add_custom_command(
+  TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/Package.appxmanifest"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/Package.appxmanifest"
+  COMMENT "Copying Package.appxmanifest for geolocator location capability"
+)
+
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})

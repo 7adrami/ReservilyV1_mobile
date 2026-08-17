@@ -3,7 +3,9 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/locale_controller.dart';
 import '../../core/theme_controller.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/common.dart';
@@ -45,15 +47,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final ok = await showDialog<bool>(
       context: ctx,
       builder: (ctx2) => AlertDialog(
-        title: const Text('Sign out?'),
-        content: const Text('You will need to sign in again to use the app.'),
+        title: Text(context.tr('signOutTitle')),
+        content: Text(context.tr('signOutBody')),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx2, false),
-              child: const Text('Stay')),
+              child: Text(context.tr('stay'))),
           FilledButton(
               onPressed: () => Navigator.pop(ctx2, true),
-              child: const Text('Sign out')),
+              child: Text(context.tr('signOut'))),
         ],
       ),
     );
@@ -69,7 +71,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (user == null) return const SizedBox();
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(title: Text(context.tr('profile'))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -121,7 +123,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             color: scheme.primaryContainer.withOpacity(0.6),
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: Text(_roleLabel(user.role),
+                          child: Text(context.tr('role_${user.role}'),
                               style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
@@ -135,87 +137,95 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          const _GroupTitle('Appearance'),
+          _GroupTitle(context.tr('appearance')),
           const _ThemePicker(),
-          const _GroupTitle('Account'),
+          _LanguagePicker(),
+          _GroupTitle(context.tr('account')),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
-            title: const Text('Edit profile'),
+            title: Text(context.tr('editProfile')),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => _showEditProfile(user),
           ),
           ListTile(
             leading: const Icon(Icons.password_rounded),
-            title: const Text('Change password'),
+            title: Text(context.tr('changePassword')),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => _showPasswordChange(user),
           ),
           ListTile(
             leading: const Icon(Icons.alternate_email_rounded),
-            title: const Text('Change email'),
+            title: Text(context.tr('changeEmail')),
             subtitle: Text(user.email ?? 'No email set'),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => _showEmailChange(user),
           ),
+          _GroupTitle(context.tr('support')),
+          ListTile(
+            leading: const Icon(Icons.feedback_outlined),
+            title: Text(context.tr('sendFeedback')),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _showFeedback,
+          ),
           if (user.isBarber) ...[
-            const _GroupTitle('Barber tools'),
+            _GroupTitle(context.tr('barberTools')),
             ListTile(
               leading: const Icon(Icons.calendar_month_rounded),
-              title: const Text('Working hours'),
+              title: Text(context.tr('workingHours')),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => context.push('/barber/hours'),
             ),
             ListTile(
               leading: const Icon(Icons.content_cut_rounded),
-              title: const Text('My services & prices'),
+              title: Text(context.tr('servicesPrices')),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => context.push('/barber/styles'),
             ),
             ListTile(
               leading: const Icon(Icons.storefront_rounded),
-              title: const Text('Shops & requests'),
+              title: Text(context.tr('shopsRequests')),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => context.push('/barber/requests'),
             ),
             ListTile(
               leading: const Icon(Icons.account_balance_wallet_outlined),
-              title: const Text('Payment wallets'),
+              title: Text(context.tr('paymentWallets')),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => context.push('/barber/wallets'),
             ),
           ],
           if (user.isOwner) ...[
-            const _GroupTitle('My barbershop'),
+            _GroupTitle(context.tr('myShop')),
             ListTile(
               leading: const Icon(Icons.store_rounded),
-              title: const Text('Manage shop details'),
+              title: Text(context.tr('manageShop')),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => context.push('/owner/shop'),
             ),
             ListTile(
               leading: const Icon(Icons.group_outlined),
-              title: const Text('My team'),
+              title: Text(context.tr('myTeam')),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => context.push('/owner/team'),
             ),
             ListTile(
               leading: const Icon(Icons.how_to_reg_outlined),
-              title: const Text('Join / leave requests'),
+              title: Text(context.tr('joinRequests')),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => context.push('/owner/requests'),
             ),
           ],
           if (user.isAdmin) ...[
-            const _GroupTitle('Administration'),
+            _GroupTitle(context.tr('administration')),
             ListTile(
               leading: const Icon(Icons.campaign_outlined),
-              title: const Text('Broadcasts'),
+              title: Text(context.tr('broadcasts')),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => context.push('/admin/broadcasts'),
             ),
             ListTile(
               leading: const Icon(Icons.storefront_outlined),
-              title: const Text('Create shop owner'),
+              title: Text(context.tr('createOwner')),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => context.push('/admin/owners'),
             ),
@@ -228,26 +238,60 @@ class _ProfileScreenState extends State<ProfileScreen> {
               side: BorderSide(color: scheme.error.withOpacity(0.4)),
             ),
             icon: const Icon(Icons.logout_rounded),
-            label: const Text('Sign out'),
+            label: Text(context.tr('signOut')),
           ),
         ],
       ),
     );
   }
 
-  String _roleLabel(String role) {
-    switch (role) {
-      case User.roleCustomer:
-        return 'Customer';
-      case User.roleBarber:
-        return 'Barber';
-      case User.roleOwner:
-        return 'Shop owner';
-      case User.roleAdmin:
-        return 'Administrator';
-      default:
-        return role;
-    }
+  void _showFeedback() {
+    final message = TextEditingController();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(context.tr('feedbackTitle'),
+                style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 14),
+            AppField(
+              context.tr('feedbackHint'),
+              controller: message,
+              maxLines: 5,
+            ),
+            const SizedBox(height: 18),
+            ElevatedButton(
+              onPressed: () async {
+                final text = message.text.trim();
+                if (text.isEmpty) {
+                  showMessage(context, context.tr('feedbackEmpty'));
+                  return;
+                }
+                final ctx = context;
+                Navigator.pop(ctx);
+                try {
+                  await ctx.read<AuthService>().submitFeedback(text);
+                  if (ctx.mounted) showMessage(ctx, context.tr('feedbackSent'));
+                } catch (e) {
+                  if (ctx.mounted) showError(ctx, e);
+                }
+              },
+              child: Text(context.tr('feedbackSend')),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showEditProfile(User user) {
@@ -272,8 +316,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('Edit profile',
-                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+                Text(context.tr('editProfile'),
+                    style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 16),
                 AppField('First name', controller: firstName),
                 const SizedBox(height: 12),
@@ -304,7 +348,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       if (ctx.mounted) showError(ctx, e);
                     }
                   },
-                  child: const Text('Save changes'),
+                  child: Text(context.tr('saveChanges')),
                 ),
               ],
             ),
@@ -408,6 +452,36 @@ class _ThemePicker extends StatelessWidget {
       ],
       selected: {controller.mode},
       onSelectionChanged: (set) => controller.setMode(set.first),
+    );
+  }
+}
+
+class _LanguagePicker extends StatelessWidget {
+  const _LanguagePicker();
+
+  static const List<(Locale, String)> _options = [
+    (Locale('en'), 'English'),
+    (Locale('fr'), 'Français'),
+    (Locale('ar'), 'العربية'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<LocaleController>();
+    return ListTile(
+      leading: const Icon(Icons.language_rounded),
+      title: Text(context.tr('language')),
+      trailing: DropdownButton<Locale>(
+        value: controller.locale,
+        underline: const SizedBox.shrink(),
+        items: [
+          for (final o in _options)
+            DropdownMenuItem(value: o.$1, child: Text(o.$2)),
+        ],
+        onChanged: (l) {
+          if (l != null) controller.setLocale(l);
+        },
+      ),
     );
   }
 }

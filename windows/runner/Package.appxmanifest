@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10">
+  <Identity Name="com.reservily.app" Publisher="CN=Reservily" Version="1.0.0.0" />
+  <mp:PhoneIdentity PhoneProductId="8a1e2c3d-4b5a-4c6d-8e9f-0a1b2c3d4e5f" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
+  <Properties>
+    <DisplayName>Reservily</DisplayName>
+    <PublisherDisplayName>Reservily</PublisherDisplayName>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.0.0" MaxVersionTested="10.0.0.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="App" Executable="reservily_flutter.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Reservily" Description="Reservily" BackgroundColor="transparent" Square150x150Logo="resources\app_icon.ico" Square44x44Logo="resources\app_icon.ico">
+        <uap:DefaultTile Wide310x150Logo="resources\app_icon.ico" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <Capability Name="location" />
+  </Capabilities>
+</Package>

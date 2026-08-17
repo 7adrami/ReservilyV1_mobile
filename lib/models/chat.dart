@@ -199,6 +199,7 @@ class ReactionInfo {
     required this.userId,
     this.username,
     this.name,
+    this.emoji,
     this.ciphertext,
     this.nonce,
   });
@@ -208,6 +209,9 @@ class ReactionInfo {
   final int userId;
   final String? username;
   final String? name;
+  /// Plaintext emoji, client-only. Used for instant optimistic display before
+  /// the server round-trip / decryption completes. Never sent to the server.
+  final String? emoji;
   final String? ciphertext;
   final String? nonce;
 
